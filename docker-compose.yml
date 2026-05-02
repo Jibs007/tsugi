@@ -1,0 +1,70 @@
+version: '3.9'
+
+# ── Infrastructure (always started) ──────────────────────────────────────────
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     tsugi
+      POSTGRES_PASSWORD: tsugi
+      POSTGRES_DB:       tsugi
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U tsugi']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+# ── App services (only used in prod / docker compose --profile app up) ────────
+  backend:
+    profiles: ['app']
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    environment:
+      PORT:          4000
+      DATABASE_URL:  postgresql://tsugi:tsugi@postgres:5432/tsugi
+      REDIS_URL:     redis://redis:6379
+      JWT_SECRET:    ${JWT_SECRET:-change_me_in_production}
+      CLIENT_URL:    http://localhost
+      NODE_ENV:      production
+    env_file:
+      - path: ./backend/.env
+        required: false
+    ports:
+      - '4000:4000'
+
+  frontend:
+    profiles: ['app']
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '80:80'
+
+volumes:
+  postgres_data:
+  redis_data:
