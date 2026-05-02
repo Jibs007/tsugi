@@ -18,35 +18,32 @@ An anime watchlist app powered by the [Jikan API](https://jikan.moe/) (MyAnimeLi
 
 ## Running Locally
 
-### Option A — Frontend + Backend dev servers (recommended for development)
-
-**1. Start the infrastructure (Postgres + Redis)**
+### First-time setup (once only)
 
 ```bash
+# 1. Install all dependencies
+npm run install:all
+
+# 2. Copy env file and run migrations
+cp backend/.env.example backend/.env
+cd backend && node src/db/migrate.js && cd ..
+```
+
+### Daily dev (2 commands)
+
+```bash
+# Terminal 1 — infrastructure (Postgres + Redis)
 docker compose up -d
+
+# Terminal 2 — both servers together
+npm run dev
 ```
 
-**2. Set up the backend**
+That's it. The root `npm run dev` uses `concurrently` to start:
+- **Backend** on http://localhost:4000 (Express)
+- **Frontend** on http://localhost:5174 (Vite — proxies `/api/*` to the backend)
 
-```bash
-cd backend
-cp .env.example .env        # edit values if needed (defaults work for local dev)
-npm install
-node src/db/migrate.js      # creates tables
-npm run dev                 # starts on http://localhost:4000
-```
-
-**3. Set up the frontend**
-
-```bash
-cd frontend
-npm install
-npm run dev                 # starts on http://localhost:5174
-```
-
-Open [http://localhost:5174](http://localhost:5174).
-
-> The Vite dev server proxies `/api/*` requests to `http://localhost:4000` automatically.
+Logs from both are colour-coded in the same terminal (`cyan` = backend, `magenta` = frontend).
 
 ---
 
