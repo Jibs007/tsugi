@@ -13,6 +13,7 @@ import ProfilePage from './pages/ProfilePage';
 import { useThemeStore } from './stores/themeStore';
 import { useAuthStore } from './stores/authStore';
 import { useUIStore } from './stores/uiStore';
+import { useWatchlistStore } from './stores/watchlistStore';
 
 // ─── OAuth landing page ────────────────────────────────────────────────────────
 function OAuthCallback() {
@@ -53,9 +54,20 @@ export default function App() {
   const { theme: t }       = useThemeStore();
   const { user, initAuth } = useAuthStore();
   const { showAuth, openAuth, closeAuth } = useUIStore();
+  const { loadWatchlist, loadMyLists, clearAll } = useWatchlistStore();
 
   // Attempt silent session restore on mount
   useEffect(() => { initAuth(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load user data when logged in; clear when logged out
+  useEffect(() => {
+    if (user) {
+      loadWatchlist();
+      loadMyLists();
+    } else {
+      clearAll();
+    }
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     document.body.style.background = t.bg;

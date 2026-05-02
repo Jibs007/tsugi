@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { animeApi } from '../lib/api';
-import { MOCK_ANIME } from '../lib/constants';
 
 // ─── Query key factory ────────────────────────────────────────────────────────
 export const animeKeys = {
@@ -49,16 +48,11 @@ function genColor(id) { return PALETTE[(id ?? 0) % PALETTE.length]; }
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
-/**
- * Top / featured anime.
- * Falls back to MOCK_ANIME so the Discover page always has content.
- */
 export function useTopAnime(params = {}) {
   return useQuery({
-    queryKey: animeKeys.top(params),
-    queryFn:  () => animeApi.top(params).then((r) => r.items.map(normaliseAnime)),
+    queryKey:  animeKeys.top(params),
+    queryFn:   () => animeApi.top(params).then((r) => r.items.map(normaliseAnime)),
     staleTime: 5 * 60 * 1000,
-    placeholderData: MOCK_ANIME,   // shown instantly while fetching
     retry: 1,
   });
 }
@@ -78,18 +72,12 @@ export function useAnimeSearch(params = {}) {
   });
 }
 
-/**
- * Single anime detail.
- * Uses MOCK_ANIME as placeholder so the page isn't blank while loading.
- */
 export function useAnimeDetail(id) {
-  const mockFallback = MOCK_ANIME.find((a) => a.id === Number(id));
   return useQuery({
-    queryKey:        animeKeys.detail(id),
-    queryFn:         () => animeApi.getById(id).then(normaliseAnime),
-    enabled:         !!id,
-    staleTime:       10 * 60 * 1000,
-    placeholderData: mockFallback,
+    queryKey:  animeKeys.detail(id),
+    queryFn:   () => animeApi.getById(id).then(normaliseAnime),
+    enabled:   !!id,
+    staleTime: 10 * 60 * 1000,
     retry: 1,
   });
 }

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import AnimeCover from '../components/AnimeCover';
-import { MOCK_ANIME } from '../lib/constants';
 import { useWatchlistStore } from '../stores/watchlistStore';
 import { useThemeStore } from '../stores/themeStore';
+import { useAnimeSearch, useAnimeDetail } from '../hooks/useAnime';
 
 export default function CreateListPage() {
   const navigate = useNavigate();
@@ -14,13 +14,16 @@ export default function CreateListPage() {
   const editList = id ? myLists.find((l) => l.id === id) : null;
   const isEdit = !!editList;
 
-  const [name, setName] = useState(editList?.name || '');
-  const [desc, setDesc] = useState(editList?.desc || '');
+  const [name, setName]       = useState(editList?.name || '');
+  const [desc, setDesc]       = useState(editList?.desc || '');
   const [isPublic, setIsPublic] = useState(editList?.isPublic ?? true);
   const [animeIds, setAnimeIds] = useState(editList?.animeIds || []);
-  const [search, setSearch] = useState('');
-  const [showShare, setShowShare] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [search, setSearch]   = useState('');
+  const [saved, setSaved]     = useState(false);
+
+  const { data: searchResults = [], isLoading: searching } = useAnimeSearch(
+    search.trim() ? { q: search.trim(), limit: 8 } : {},
+  );
 
   const inputStyle = {
     width: '100%', background: t.surface, border: `1px solid ${t.border}`,
@@ -28,16 +31,10 @@ export default function CreateListPage() {
     fontSize: 15, outline: 'none', boxSizing: 'border-box', transition: 'border-color .15s',
   };
 
-  const searchResults = search.trim()
-    ? MOCK_ANIME.filter((a) => a.title.toLowerCase().includes(search.toLowerCase()) || a.jp.includes(search))
-    : [];
-
-  const shareLink = `tsugi.app/list/${(name || 'my-list').toLowerCase().replace(/\s+/g, '-')}-${Math.random().toString(36).slice(2, 6)}`;
-
-  const save = () => {
+  const save = async () => {
     if (!name.trim()) return;
-    if (isEdit) updateList(editList.id, { name, desc, isPublic, animeIds });
-    else createList({ name, desc, isPublic, animeIds });
+    if (isEdit) await updateList(editList.id, { name, desc, isPublic, animeIds });
+    else await createList({ name, desc, isPublic, animeIds });
     setSaved(true);
     setTimeout(() => { setSaved(false); navigate('/lists'); }, 1200);
   };
@@ -80,12 +77,17 @@ export default function CreateListPage() {
           <span style={{ fontWeight: 700, fontSize: 14, color: isPublic ? t.accent : t.textMuted }}>{isPublic ? 'Public' : 'Private'}</span>
         </div>
 
-        {/* Add anime */}
+        {/* Add anime search */}
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 }}>Add Anime</label>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search to add anime..." style={inputStyle}
             onFocus={(e) => (e.target.style.borderColor = t.accent)} onBlur={(e) => (e.target.style.borderColor = t.border)} />
-          {searchResults.map((anime) => (
+
+          {searching && search.trim() && (
+            <div style={{ padding: '8px 12px', fontSize: 13, color: t.textMuted }}>Searching…</div>
+          )}
+
+          {!searching && searchResults.map((anime) => (
             <div
               key={anime.id}
               onClick={() => { if (!animeIds.includes(anime.id)) setAnimeIds((ids) => [...ids, anime.id]); setSearch(''); }}
@@ -94,11 +96,11 @@ export default function CreateListPage() {
               onMouseLeave={(e) => (e.currentTarget.style.borderColor = t.border)}
             >
               <AnimeCover anime={anime} width={36} height={50} style={{ borderRadius: 4 }} />
-              <div>
+              <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: t.text }}>{anime.title}</div>
                 <div style={{ fontSize: 11, color: t.textMuted }}>{anime.jp}</div>
               </div>
-              {animeIds.includes(anime.id) && <span style={{ marginLeft: 'auto', color: t.accent2 }}>✓</span>}
+              {animeIds.includes(anime.id) && <span style={{ color: t.accent2 }}>✓</span>}
             </div>
           ))}
         </div>
@@ -107,16 +109,14 @@ export default function CreateListPage() {
         {animeIds.length > 0 && (
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.4 }}>In this list ({animeIds.length})</div>
-            {animeIds.map((id) => {
-              const anime = MOCK_ANIME.find((a) => a.id === id);
-              return anime ? (
-                <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, marginBottom: 6 }}>
-                  <AnimeCover anime={anime} width={36} height={50} style={{ borderRadius: 4 }} />
-                  <div style={{ flex: 1, fontWeight: 700, fontSize: 14, color: t.text }}>{anime.title}</div>
-                  <button onClick={() => setAnimeIds((ids) => ids.filter((i) => i !== id))} style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: 16 }}>✕</button>
-                </div>
-              ) : null;
-            })}
+            {animeIds.map((animeId) => (
+              <SelectedAnimeItem
+                key={animeId}
+                animeId={animeId}
+                t={t}
+                onRemove={() => setAnimeIds((ids) => ids.filter((i) => i !== animeId))}
+              />
+            ))}
           </div>
         )}
 
@@ -128,23 +128,31 @@ export default function CreateListPage() {
           >
             {saved ? '✓ Saved!' : isEdit ? 'Save Changes' : 'Create List'}
           </button>
-          {isPublic && (
-            <button
-              onClick={() => setShowShare((p) => !p)}
-              style={{ padding: '13px 18px', background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, color: t.textMuted, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
-            >
-              Share ↗
-            </button>
-          )}
         </div>
-
-        {showShare && (
-          <div style={{ padding: '14px 16px', background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 }}>Shareable Link</div>
-            <div style={{ fontFamily: 'monospace', fontSize: 13, color: t.accent2, wordBreak: 'break-all' }}>{shareLink}</div>
-          </div>
-        )}
       </div>
+    </div>
+  );
+}
+
+function SelectedAnimeItem({ animeId, t, onRemove }) {
+  const { data: anime, isLoading } = useAnimeDetail(animeId);
+
+  if (isLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, marginBottom: 6 }}>
+        <div style={{ width: 36, height: 50, background: t.surface2, borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
+        <div style={{ flex: 1, height: 14, background: t.surface2, borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
+      </div>
+    );
+  }
+
+  if (!anime) return null;
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, marginBottom: 6 }}>
+      <AnimeCover anime={anime} width={36} height={50} style={{ borderRadius: 4 }} />
+      <div style={{ flex: 1, fontWeight: 700, fontSize: 14, color: t.text }}>{anime.title}</div>
+      <button onClick={onRemove} style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: 16 }}>✕</button>
     </div>
   );
 }

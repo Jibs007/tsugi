@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MOCK_ANIME, STATUS_LABELS, STATUS_COLORS } from '../lib/constants';
+import { STATUS_LABELS, STATUS_COLORS } from '../lib/constants';
 import { useWatchlistStore } from '../stores/watchlistStore';
 import { useThemeStore } from '../stores/themeStore';
+import { useAnimeDetail } from '../hooks/useAnime';
 
 export default function ProfilePage({ user }) {
   const navigate = useNavigate();
@@ -11,8 +12,7 @@ export default function ProfilePage({ user }) {
   const [tab, setTab] = useState('lists');
 
   const completed = entries.filter((e) => e.status === 'completed');
-  const totalEps = completed.reduce((s, e) => s + (MOCK_ANIME.find((a) => a.id === e.animeId)?.eps || 0), 0);
-  const days = Math.round((totalEps * 24) / 60 / 24 * 10) / 10;
+  const avatar = (user?.username?.[0] || user?.email?.[0] || 'U').toUpperCase();
 
   return (
     <div style={{ padding: '36px 40px' }} className="animate-fade-in">
@@ -24,13 +24,13 @@ export default function ProfilePage({ user }) {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontWeight: 800, fontSize: 26, color: t.accent,
         }}>
-          {(user || '?')[0].toUpperCase()}
+          {avatar}
         </div>
         <div>
-          <div style={{ fontWeight: 800, fontSize: 20, color: t.text, marginBottom: 3 }}>{user || 'Guest'}</div>
-          <div style={{ fontSize: 12, color: t.textMuted, marginBottom: 14 }}>Joined April 2026</div>
+          <div style={{ fontWeight: 800, fontSize: 20, color: t.text, marginBottom: 3 }}>{user?.username || user?.email || 'Guest'}</div>
+          <div style={{ fontSize: 12, color: t.textMuted, marginBottom: 14 }}>{user?.email}</div>
           <div style={{ display: 'flex', gap: 24 }}>
-            {[['Anime', entries.length], ['Completed', completed.length], ['Episodes', totalEps], ['Days', days]].map(([l, v]) => (
+            {[['Anime', entries.length], ['Completed', completed.length], ['Lists', myLists.length]].map(([l, v]) => (
               <div key={l} style={{ textAlign: 'center' }}>
                 <div style={{ fontWeight: 800, fontSize: 18, color: t.accent }}>{v}</div>
                 <div style={{ fontSize: 11, color: t.textMuted, marginTop: 1 }}>{l}</div>
@@ -87,26 +87,31 @@ export default function ProfilePage({ user }) {
 
       {tab === 'activity' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {entries.length === 0 && (
+          {entries.length === 0 ? (
             <div style={{ fontSize: 14, color: t.textMuted, textAlign: 'center', padding: '40px 0' }}>No activity yet.</div>
+          ) : (
+            entries.slice().reverse().map((entry) => (
+              <ActivityItem key={entry.animeId} entry={entry} t={t} navigate={navigate} />
+            ))
           )}
-          {entries.slice().reverse().map((entry) => {
-            const anime = MOCK_ANIME.find((a) => a.id === entry.animeId);
-            if (!anime) return null;
-            return (
-              <div key={entry.animeId} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_COLORS[entry.status], flexShrink: 0 }} />
-                <div style={{ flex: 1, fontSize: 14, color: t.textMuted }}>
-                  Marked <strong style={{ color: STATUS_COLORS[entry.status] }}>{STATUS_LABELS[entry.status]}</strong>
-                </div>
-                <div onClick={() => navigate(`/anime/${anime.id}`)} style={{ fontWeight: 700, fontSize: 14, color: t.accent2, cursor: 'pointer' }}>
-                  {anime.title}
-                </div>
-              </div>
-            );
-          })}
         </div>
       )}
+    </div>
+  );
+}
+
+function ActivityItem({ entry, t, navigate }) {
+  const { data: anime } = useAnimeDetail(entry.animeId);
+  if (!anime) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10 }}>
+      <div style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_COLORS[entry.status], flexShrink: 0 }} />
+      <div style={{ flex: 1, fontSize: 14, color: t.textMuted }}>
+        Marked <strong style={{ color: STATUS_COLORS[entry.status] }}>{STATUS_LABELS[entry.status]}</strong>
+      </div>
+      <div onClick={() => navigate(`/anime/${anime.id}`)} style={{ fontWeight: 700, fontSize: 14, color: t.accent2, cursor: 'pointer' }}>
+        {anime.title}
+      </div>
     </div>
   );
 }
