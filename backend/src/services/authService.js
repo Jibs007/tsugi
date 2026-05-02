@@ -49,7 +49,7 @@ export async function signup({ username, email, password }) {
        RETURNING id, username, email, avatar_url, created_at`,
       [username.trim(), email.toLowerCase().trim(), hash],
     );
-    user = rows[0];
+    user = safeUser(rows[0]);
   } catch (err) {
     if (err.code === '23505') {
       const field = err.detail?.includes('email') ? 'email' : 'username';

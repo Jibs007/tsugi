@@ -99,10 +99,10 @@ export default function Sidebar({ user, onAuthClick, t }) {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontWeight: 800, fontSize: 14, color: t.accent,
             }}>
-              {user[0].toUpperCase()}
+              {(user?.username?.[0] || user?.email?.[0] || 'U').toUpperCase()}
             </div>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 13, color: t.text }}>{user}</div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: t.text }}>{user?.username || user?.email}</div>
               <div style={{ fontSize: 11, color: t.textMuted }}>View profile</div>
             </div>
           </div>
