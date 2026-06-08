@@ -71,6 +71,19 @@ router.get('/search', async (req, res, next) => {
 });
 
 /**
+ * GET /api/anime/:id/characters
+ */
+router.get('/:id/characters', async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id must be an integer' });
+    res.json(await anime.getCharacters(id));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/anime/:id/recommendations
  */
 router.get('/:id/recommendations', async (req, res, next) => {

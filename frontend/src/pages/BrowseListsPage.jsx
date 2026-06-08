@@ -50,7 +50,7 @@ export default function BrowseListsPage({ user, onAuthClick }) {
       {loading ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 16 }}>
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} style={{ height: 200, background: t.surface, borderRadius: 12, border: `1px solid ${t.border}`, animation: 'pulse 1.5s ease-in-out infinite' }} />
+            <div key={i} className="skeleton" style={{ height: 200, background: t.surface, borderRadius: 12, border: `1px solid ${t.border}` }} />
           ))}
         </div>
       ) : allLists.length === 0 ? (

@@ -82,10 +82,10 @@ function WatchlistItem({ entry, t, navigate, onStatusChange, onRemove }) {
   if (isLoading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: '10px 16px', height: 88 }}>
-        <div style={{ width: 48, height: 68, background: t.surface2, borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
+        <div className="skeleton" style={{ width: 48, height: 68, background: t.surface2, borderRadius: 4 }} />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ width: '40%', height: 14, background: t.surface2, borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
-          <div style={{ width: '25%', height: 11, background: t.surface2, borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
+          <div className="skeleton" style={{ width: '40%', height: 14, background: t.surface2, borderRadius: 4 }} />
+          <div className="skeleton" style={{ width: '25%', height: 11, background: t.surface2, borderRadius: 4 }} />
         </div>
       </div>
     );

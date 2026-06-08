@@ -1,39 +1,34 @@
 import { useEffect } from 'react';
-import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
+import Topbar from './components/Topbar';
 import AuthModal from './components/AuthModal';
-import ThemePanel from './components/ThemePanel';
 import DiscoverPage from './pages/DiscoverPage';
 import AnimeDetailPage from './pages/AnimeDetailPage';
 import WatchlistPage from './pages/WatchlistPage';
 import BrowseListsPage from './pages/BrowseListsPage';
 import CreateListPage from './pages/CreateListPage';
-import SearchPage from './pages/SearchPage';
 import ProfilePage from './pages/ProfilePage';
+import GenreBrowsePage from './pages/GenreBrowsePage';
 import { useThemeStore } from './stores/themeStore';
 import { useAuthStore } from './stores/authStore';
 import { useUIStore } from './stores/uiStore';
 import { useWatchlistStore } from './stores/watchlistStore';
 
-// ─── OAuth landing page ────────────────────────────────────────────────────────
 function OAuthCallback() {
   const navigate    = useNavigate();
   const handleOAuth = useAuthStore((s) => s.handleOAuthCallback);
-
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get('token');
     if (token) {
       handleOAuth(token);
-      // Clean the token out of the URL immediately
       window.history.replaceState({}, '', '/');
     }
     navigate('/', { replace: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   return null;
 }
 
-// ─── Auth gate ────────────────────────────────────────────────────────────────
 function GuestGuard({ user, onAuthClick, children }) {
   if (!user) {
     return (
@@ -49,17 +44,14 @@ function GuestGuard({ user, onAuthClick, children }) {
   return children;
 }
 
-// ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const { theme: t }       = useThemeStore();
   const { user, initAuth } = useAuthStore();
   const { showAuth, openAuth, closeAuth } = useUIStore();
   const { loadWatchlist, loadMyLists, clearAll } = useWatchlistStore();
 
-  // Attempt silent session restore on mount
   useEffect(() => { initAuth(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load user data when logged in; clear when logged out
   useEffect(() => {
     if (user) {
       loadWatchlist();
@@ -80,32 +72,34 @@ export default function App() {
     <div style={{ display: 'flex', minHeight: '100vh', background: t.bg, color: t.text }}>
       <Sidebar user={user} onAuthClick={openAuth} t={t} />
 
-      <main style={{ flex: 1, overflowY: 'auto', minHeight: '100vh' }}>
-        <Routes>
-          <Route path="/"                    element={<DiscoverPage {...commonProps} />} />
-          <Route path="/anime/:id"           element={<AnimeDetailPage {...commonProps} />} />
-          <Route path="/lists"               element={<BrowseListsPage {...commonProps} />} />
-          <Route path="/search"              element={<SearchPage />} />
-          <Route path="/auth/callback"       element={<OAuthCallback />} />
+      {/* Right column: topbar + scrollable content */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh', overflow: 'hidden' }}>
+        <Topbar />
+        <main id="main-scroll" style={{ flex: 1, overflowY: 'auto' }}>
+          <Routes>
+            <Route path="/"              element={<DiscoverPage {...commonProps} />} />
+            <Route path="/anime/:id"     element={<AnimeDetailPage {...commonProps} />} />
+            <Route path="/lists"         element={<BrowseListsPage {...commonProps} />} />
+            <Route path="/genres"        element={<GenreBrowsePage />} />
+            <Route path="/auth/callback" element={<OAuthCallback />} />
 
-          <Route path="/watchlist" element={
-            <GuestGuard {...commonProps}><WatchlistPage /></GuestGuard>
-          } />
-          <Route path="/lists/create" element={
-            <GuestGuard {...commonProps}><CreateListPage /></GuestGuard>
-          } />
-          <Route path="/lists/:id/edit" element={
-            <GuestGuard {...commonProps}><CreateListPage /></GuestGuard>
-          } />
-          <Route path="/profile" element={
-            <GuestGuard {...commonProps}><ProfilePage user={user} /></GuestGuard>
-          } />
+            <Route path="/watchlist" element={
+              <GuestGuard {...commonProps}><WatchlistPage /></GuestGuard>
+            } />
+            <Route path="/lists/create" element={
+              <GuestGuard {...commonProps}><CreateListPage /></GuestGuard>
+            } />
+            <Route path="/lists/:id/edit" element={
+              <GuestGuard {...commonProps}><CreateListPage /></GuestGuard>
+            } />
+            <Route path="/profile" element={
+              <GuestGuard {...commonProps}><ProfilePage user={user} /></GuestGuard>
+            } />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
-
-      <ThemePanel />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </div>
 
       {showAuth && <AuthModal onClose={closeAuth} t={t} />}
     </div>

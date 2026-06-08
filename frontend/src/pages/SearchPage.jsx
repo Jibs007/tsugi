@@ -37,7 +37,8 @@ export default function SearchPage() {
 
   const hasParams = !!(searchParams.q || searchParams.genres || searchParams.status);
 
-  const { data: results = [], isLoading } = useAnimeSearch(hasParams ? searchParams : {});
+  const { data: searchData, isLoading } = useAnimeSearch(hasParams ? searchParams : {});
+  const results = searchData?.items ?? [];
 
   return (
     <div style={{ padding: '36px 40px' }} className="animate-fade-in">
@@ -150,8 +151,7 @@ function SearchSkeleton({ t, cardStyle }) {
           background: t.surface, borderRadius: 10, overflow: 'hidden',
           border: `1px solid ${t.border}`,
           height: cardStyle === 'list' ? 90 : 220,
-          animation: 'pulse 1.5s ease-in-out infinite',
-        }} />
+        }} className="skeleton" />
       ))}
     </div>
   );

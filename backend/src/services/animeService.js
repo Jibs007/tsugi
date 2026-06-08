@@ -83,7 +83,7 @@ function normalise(raw) {
     status:      raw.status,         // 'Finished Airing' | 'Currently Airing' | 'Not yet aired'
     airing:      raw.airing,
     season:      raw.season,
-    year:        raw.year,
+    year:        raw.year || (raw.aired?.from ? new Date(raw.aired.from).getFullYear() : null),
     score:       raw.score,
     scoredBy:    raw.scored_by,
     rank:        raw.rank,
@@ -110,12 +110,28 @@ function normalisePage(data) {
 // ─── TTLs ─────────────────────────────────────────────────────────────────────
 
 const TTL = {
-  detail:   6 * 60 * 60,   // 6 h  — static metadata changes rarely
-  search:   30 * 60,        // 30 m — search results shift
-  top:      60 * 60,        // 1 h
-  seasonal: 30 * 60,        // 30 m — airing status updates
+  detail:   24 * 60 * 60,  // 24 h
+  search:    1 * 60 * 60,  // 1 h
+  top:       3 * 60 * 60,  // 3 h
+  seasonal: 30 * 60,       // 30 m — airing status updates frequently
   genres:   24 * 60 * 60,  // 24 h — genre list is very stable
 };
+
+// ─── Title-match re-ranker ────────────────────────────────────────────────────
+// Jikan orders by score by default. When there's a text query we re-sort so
+// exact/prefix matches surface above deeper substring hits.
+
+function sortByTitleMatch(items, query) {
+  if (!query) return items;
+  const q = query.toLowerCase();
+  const rank = (item) => {
+    const t = (item.title || '').toLowerCase();
+    if (t === q)          return 0; // exact
+    if (t.startsWith(q))  return 1; // prefix
+    return 2;                        // partial
+  };
+  return [...items].sort((a, b) => rank(a) - rank(b));
+}
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -153,7 +169,9 @@ export async function search(opts = {}) {
   const cacheKey = `anime:search:${JSON.stringify(params)}`;
   return withCache(cacheKey, TTL.search, async () => {
     const data = await jikan('/anime', params);
-    return normalisePage(data);
+    const result = normalisePage(data);
+    result.items = sortByTitleMatch(result.items, opts.q);
+    return result;
   });
 }
 
@@ -198,7 +216,12 @@ export async function getSeason(year, season, opts = {}) {
 export async function getGenres() {
   return withCache('anime:genres', TTL.genres, async () => {
     const data = await jikan('/genres/anime');
-    return (data.data || []).map((g) => ({ id: g.mal_id, name: g.name, count: g.count }));
+    return (data.data || []).map((g) => ({
+      id:    g.mal_id,
+      name:  g.name,
+      count: g.count,
+      type:  g.type || 'Genres',
+    }));
   });
 }
 
@@ -213,8 +236,47 @@ export async function getRecommendations(animeId) {
   });
 }
 
+/** Characters + voice actors for an anime */
+export async function getCharacters(animeId) {
+  return withCache(`anime:chars:${animeId}`, TTL.detail, async () => {
+    const data = await jikan(`/anime/${animeId}/characters`);
+    return (data.data || [])
+      .filter((c) => c.role === 'Main')
+      .slice(0, 8)
+      .map((c) => {
+        const jaVA = (c.voice_actors || []).find((v) => v.language === 'Japanese');
+        return {
+          id:      c.character.mal_id,
+          name:    c.character.name,
+          image:   c.character.images?.webp?.image_url || c.character.images?.jpg?.image_url || null,
+          role:    c.role,
+          va:      jaVA?.person?.name ?? null,
+          vaImage: jaVA?.person?.images?.jpg?.image_url ?? null,
+        };
+      });
+  });
+}
+
 /** Invalidate a cached entry — call when user reports stale data */
 export async function bustCache(animeId) {
   const keys = [`anime:detail:${animeId}`, `anime:recs:${animeId}`];
   await Promise.allSettled(keys.map((k) => redis.del(k)));
+}
+
+/**
+ * Prewarm Redis on startup so the first users never hit a cold cache.
+ * Fires in the background — failures are logged but never throw.
+ */
+export async function prewarmCache() {
+  console.log('🔥 Prewarming Redis cache...');
+  try {
+    await Promise.allSettled([
+      getTop({ filter: 'bypopularity', page: 1, limit: 24 }),
+      getTop({ filter: 'byrating',     page: 1, limit: 24 }),
+      getSeasonNow({ page: 1, limit: 24 }),
+    ]);
+    console.log('✅ Cache prewarmed');
+  } catch (err) {
+    console.warn('Cache prewarm failed (non-fatal):', err.message);
+  }
 }

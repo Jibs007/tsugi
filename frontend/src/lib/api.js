@@ -97,6 +97,9 @@ export const animeApi = {
 
   /** GET /api/anime/:id/recommendations */
   recommendations: (id) => api.get(`/anime/${id}/recommendations`),
+
+  /** GET /api/anime/:id/characters */
+  characters: (id) => api.get(`/anime/${id}/characters`),
 };
 
 // ─── Watchlist ────────────────────────────────────────────────────────────────

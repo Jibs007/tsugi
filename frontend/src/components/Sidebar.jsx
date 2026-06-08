@@ -1,15 +1,22 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 const NAV = [
   { path: '/',          label: 'Discover', icon: '◈' },
   { path: '/watchlist', label: 'My List',  icon: '▶', auth: true },
   { path: '/lists',     label: 'Lists',    icon: '⊞' },
-  { path: '/search',    label: 'Search',   icon: '◎' },
+  { path: '/genres',    label: 'Genres',   icon: '◎' },
   { path: '/profile',   label: 'Profile',  icon: '◉', auth: true },
 ];
 
 export default function Sidebar({ user, onAuthClick, t }) {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+
+  // Navigate to Discover with a reset signal so DiscoverPage clears all filters
+  const handleLogoClick = (e) => {
+    e.preventDefault();
+    navigate('/', { state: { reset: Date.now() } });
+  };
 
   return (
     <aside
@@ -25,9 +32,10 @@ export default function Sidebar({ user, onAuthClick, t }) {
         top: 0,
       }}
     >
-      {/* Logo */}
+      {/* Logo — navigates to Discover and clears all filter state */}
       <Link
         to="/"
+        onClick={handleLogoClick}
         style={{ textDecoration: 'none', padding: '24px 22px 20px', display: 'block', borderBottom: `1px solid ${t.border}` }}
       >
         <div

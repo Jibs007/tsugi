@@ -3,10 +3,11 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import passport from 'passport';
-import authRoutes     from './routes/auth.js';
+import authRoutes      from './routes/auth.js';
 import watchlistRoutes from './routes/watchlist.js';
-import listsRoutes    from './routes/lists.js';
-import animeRoutes    from './routes/anime.js';
+import listsRoutes     from './routes/lists.js';
+import animeRoutes     from './routes/anime.js';
+import { prewarmCache } from './services/animeService.js';
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
@@ -37,4 +38,7 @@ app.use((err, _req, res, _next) => {
   res.status(status).json({ error: message });
 });
 
-app.listen(PORT, () => console.log(`🎌 Tsugi API → http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🎌 Tsugi API → http://localhost:${PORT}`);
+  prewarmCache(); // fire-and-forget
+});

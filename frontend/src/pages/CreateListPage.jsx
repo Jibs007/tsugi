@@ -21,9 +21,10 @@ export default function CreateListPage() {
   const [search, setSearch]   = useState('');
   const [saved, setSaved]     = useState(false);
 
-  const { data: searchResults = [], isLoading: searching } = useAnimeSearch(
+  const { data: searchData, isLoading: searching } = useAnimeSearch(
     search.trim() ? { q: search.trim(), limit: 8 } : {},
   );
+  const searchResults = searchData?.items ?? [];
 
   const inputStyle = {
     width: '100%', background: t.surface, border: `1px solid ${t.border}`,

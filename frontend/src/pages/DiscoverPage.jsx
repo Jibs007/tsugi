@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import AnimeCard from '../components/AnimeCard';
 import AnimeCover from '../components/AnimeCover';
 import StatusBadge from '../components/StatusBadge';
@@ -8,93 +8,158 @@ import { useWatchlistStore } from '../stores/watchlistStore';
 import { useThemeStore } from '../stores/themeStore';
 import { useTopAnime, useAnimeSearch } from '../hooks/useAnime';
 
+const SORT_FILTERS = ['bypopularity', 'byrating', 'airing'];
+
 export default function DiscoverPage({ onAuthClick }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { theme: t, cardStyle } = useThemeStore();
   const { getEntry } = useWatchlistStore();
-  const [genre, setGenre] = useState(GENRES[0]); // { name: 'All', id: null }
-  const [query, setQuery] = useState('');
+  const gridRef = useRef(null);
 
-  // ── Real data ──────────────────────────────────────────────────────────────
-  // When there's a search query or genre filter, use /search. Otherwise show top anime.
-  const isFiltering = query.trim() || genre.id !== null;
+  const urlQuery = searchParams.get('q') || '';
+  const [genre, setGenre]         = useState(GENRES[0]);
+  const [page, setPage]           = useState(1);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [carouselPaused, setPaused] = useState(false);
 
-  const { data: topAnime = [], isLoading: topLoading } = useTopAnime({ filter: 'bypopularity', limit: 24 });
+  // Pick a random sort on each page load — stable for the component lifetime
+  const [topFilter] = useState(
+    () => SORT_FILTERS[Math.floor(Math.random() * SORT_FILTERS.length)],
+  );
 
-  const { data: searchResults = [], isLoading: searchLoading } = useAnimeSearch(
+  // React to every navigation event (location.key is unique per navigate() call).
+  // This catches logo→same-URL clicks that urlQuery alone never detects, and also
+  // resets pagination whenever the search context changes.
+  useEffect(() => {
+    const q         = searchParams.get('q') || '';
+    const hasGenres = !!searchParams.get('genres');
+    // Always reset pagination and carousel position on navigation
+    setPage(1);
+    setActiveIdx(0);
+    // Reset genre filter too when the URL carries no filter params at all
+    if (!q && !hasGenres) setGenre(GENRES[0]);
+  }, [location.key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleGenreChange = (g) => { setGenre(g); setPage(1); };
+
+  const isFiltering = !!(urlQuery || genre.id !== null);
+
+  const { data: topData, isLoading: topLoading } = useTopAnime({
+    filter: topFilter,
+    limit: 24,
+    page,
+  });
+
+  const { data: searchData, isLoading: searchLoading } = useAnimeSearch(
     isFiltering
-      ? {
-          q:      query.trim() || undefined,
-          genres: genre.id != null ? String(genre.id) : undefined,
-          limit:  24,
-        }
+      ? { q: urlQuery || undefined, genres: genre.id != null ? String(genre.id) : undefined, limit: 24, page }
       : {},
   );
 
-  const anime    = isFiltering ? searchResults : topAnime;
-  const loading  = isFiltering ? searchLoading  : topLoading;
-  const featured = topAnime[0] ?? anime[0];
+  const activeData = isFiltering ? searchData   : topData;
+  const loading    = isFiltering ? searchLoading : topLoading;
+  const anime      = activeData?.items      ?? [];
+  const pagination = activeData?.pagination ?? null;
+  const hasNext    = pagination?.has_next_page ?? (anime.length === 24);
+
+  // Carousel data — first 5 from top list
+  const featuredList = !isFiltering ? (topData?.items?.slice(0, 5) ?? []) : [];
+  const featured = featuredList[activeIdx] ?? featuredList[0];
+
+  // Auto-advance carousel every 5s
+  useEffect(() => {
+    if (carouselPaused || featuredList.length <= 1) return;
+    const id = setInterval(
+      () => setActiveIdx((i) => (i + 1) % featuredList.length),
+      5000,
+    );
+    return () => clearInterval(id);
+  }, [carouselPaused, featuredList.length]);
+
+  // Scroll to top on page change
+  const goPage = (n) => {
+    setPage(n);
+    document.getElementById('main-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   return (
     <div className="animate-fade-in">
-      {/* Spotlight banner */}
-      {featured && (
-        <div style={{
-          position: 'relative', overflow: 'hidden',
-          background: `linear-gradient(100deg, ${t.bg2} 0%, ${featured.color}12 60%, ${featured.color}22 100%)`,
-          borderBottom: `1px solid ${t.border}`,
-          padding: '36px 40px', display: 'flex', alignItems: 'center', gap: 32,
-        }}>
-          <AnimeCover anime={featured} width={110} height={155} />
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 11, color: featured.color, letterSpacing: 2, marginBottom: 10, textTransform: 'uppercase', opacity: 0.9 }}>✦ Spotlight</div>
-            <div style={{ fontWeight: 800, fontSize: 30, color: t.text, marginBottom: 3, lineHeight: 1.1 }}>{featured.title}</div>
-            <div style={{ fontSize: 13, color: t.textMuted, marginBottom: 12 }}>{featured.jp}</div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
-              {featured.genres.slice(0, 3).map((g) => (
-                <span key={g} style={{ fontSize: 12, fontWeight: 700, color: t.accent2, background: t.accentMuted, borderRadius: 5, padding: '3px 9px' }}>{g}</span>
-              ))}
-              <StatusBadge status={featured.status} />
-              <span style={{ fontWeight: 700, fontSize: 13, color: t.textMuted }}>★ {featured.rating}</span>
+      {/* Carousel spotlight — only when not filtering */}
+      {!isFiltering && (
+        topLoading ? <SpotlightSkeleton t={t} /> : featured && (
+          <div
+            style={{
+              position: 'relative', overflow: 'hidden',
+              background: `linear-gradient(100deg, ${t.bg2} 0%, ${featured.color}12 60%, ${featured.color}22 100%)`,
+              borderBottom: `1px solid ${t.border}`,
+            }}
+            onMouseEnter={() => setPaused(true)}
+            onMouseLeave={() => setPaused(false)}
+          >
+            {/* Slide content — key triggers re-animation */}
+            <div
+              key={activeIdx}
+              className="spotlight-slide"
+              style={{ padding: '36px 40px', display: 'flex', alignItems: 'center', gap: 32 }}
+            >
+              <AnimeCover anime={featured} width={110} height={155} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 11, color: featured.color, letterSpacing: 2, marginBottom: 10, textTransform: 'uppercase', opacity: 0.9 }}>✦ Spotlight</div>
+                <div style={{ fontWeight: 800, fontSize: 30, color: t.text, marginBottom: 3, lineHeight: 1.1 }}>{featured.title}</div>
+                <div style={{ fontSize: 13, color: t.textMuted, marginBottom: 12 }}>{featured.jp}</div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {featured.genres.slice(0, 3).map((g) => (
+                    <span key={g} style={{ fontSize: 12, fontWeight: 700, color: t.accent2, background: t.accentMuted, borderRadius: 5, padding: '3px 9px' }}>{g}</span>
+                  ))}
+                  <StatusBadge status={featured.status} />
+                  <span style={{ fontWeight: 700, fontSize: 13, color: t.textMuted }}>★ {featured.rating}</span>
+                </div>
+                <button
+                  onClick={() => navigate(`/anime/${featured.id}`)}
+                  style={{ background: t.accent, border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: 14, padding: '10px 22px', cursor: 'pointer', transition: 'opacity .15s' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+                >View Details</button>
+              </div>
             </div>
-            <button
-              onClick={() => navigate(`/anime/${featured.id}`)}
-              style={{ background: t.accent, border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: 14, padding: '10px 22px', cursor: 'pointer', transition: 'opacity .15s' }}
-              onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
-              onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
-            >View Details</button>
+
+            {/* Dot indicators */}
+            {featuredList.length > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 6, paddingBottom: 14 }}>
+                {featuredList.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setActiveIdx(i)}
+                    style={{
+                      width: i === activeIdx ? 20 : 8, height: 8, borderRadius: 4, padding: 0,
+                      background: i === activeIdx ? t.accent : t.border,
+                      border: 'none', cursor: 'pointer', transition: 'all .3s',
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        </div>
+        )
       )}
 
-      {/* Search bar */}
-      <div style={{ padding: '16px 40px', borderBottom: `1px solid ${t.border}`, background: t.bg2 }}>
-        <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: t.textMuted, pointerEvents: 'none' }}>◎</span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search anime by title..."
-            style={{
-              width: '100%', background: t.surface, border: `1px solid ${t.border}`,
-              borderRadius: 8, padding: '10px 14px 10px 40px', color: t.text,
-              fontSize: 15, fontWeight: 500, outline: 'none', boxSizing: 'border-box', transition: 'border-color .15s',
-            }}
-            onFocus={(e) => (e.target.style.borderColor = t.accent)}
-            onBlur={(e)  => (e.target.style.borderColor = t.border)}
-          />
-          {query && (
-            <button onClick={() => setQuery('')} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 16 }}>×</button>
-          )}
-        </div>
-      </div>
-
-      {/* Genre filter */}
-      <div style={{ padding: '14px 40px 14px', display: 'flex', gap: 7, overflowX: 'auto', borderBottom: `1px solid ${t.border}` }}>
+      {/* Genre filter + active query display */}
+      <div ref={gridRef} style={{ padding: '14px 40px', display: 'flex', gap: 7, overflowX: 'auto', borderBottom: `1px solid ${t.border}`, alignItems: 'center' }}>
+        {urlQuery && (
+          <div style={{ flexShrink: 0, fontSize: 13, color: t.textMuted, marginRight: 8 }}>
+            Results for <strong style={{ color: t.text }}>"{urlQuery}"</strong>
+            <button
+              onClick={() => navigate('/')}
+              style={{ marginLeft: 8, background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 14, verticalAlign: 'middle' }}
+            >×</button>
+          </div>
+        )}
         {GENRES.map((g) => {
           const active = g.id === genre.id;
           return (
-            <button key={g.name} onClick={() => setGenre(g)} style={{
+            <button key={g.name} onClick={() => handleGenreChange(g)} style={{
               flexShrink: 0, background: active ? t.accent : 'transparent',
               border: `1px solid ${active ? t.accent : t.border}`,
               color: active ? '#fff' : t.textMuted, padding: '6px 14px',
@@ -102,39 +167,89 @@ export default function DiscoverPage({ onAuthClick }) {
             }}>{g.name}</button>
           );
         })}
+        <button
+          onClick={() => navigate('/genres')}
+          style={{
+            flexShrink: 0, background: 'transparent',
+            border: `1px solid ${t.border}`, color: t.accent,
+            padding: '6px 14px', fontWeight: 700, fontSize: 12,
+            cursor: 'pointer', borderRadius: 6, transition: 'all .13s',
+            whiteSpace: 'nowrap',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = t.accentMuted)}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+        >All Genres →</button>
       </div>
 
       {/* Grid */}
       <div style={{ padding: '24px 40px' }}>
         {loading ? (
-          <SkeletonGrid t={t} cardStyle={cardStyle} />
+          <CardSkeleton t={t} cardStyle={cardStyle} />
         ) : anime.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
             <div style={{ fontSize: 15, color: t.textMuted, marginBottom: 12 }}>
-              No results for "<strong style={{ color: t.text }}>{query}</strong>"
+              No results{urlQuery ? ` for "${urlQuery}"` : ''}.
             </div>
-            <button onClick={() => { setQuery(''); setGenre(GENRES[0]); }} style={{ background: 'transparent', border: `1px solid ${t.border}`, color: t.textMuted, borderRadius: 7, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+            <button
+              onClick={() => { setGenre(GENRES[0]); navigate('/'); }}
+              style={{ background: 'transparent', border: `1px solid ${t.border}`, color: t.textMuted, borderRadius: 7, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+            >
               Clear filters
             </button>
           </div>
         ) : (
-          <div style={{
-            display: cardStyle === 'list' ? 'flex' : 'grid',
-            flexDirection: cardStyle === 'list' ? 'column' : undefined,
-            gridTemplateColumns: cardStyle === 'list' ? undefined : 'repeat(auto-fill, minmax(162px, 1fr))',
-            gap: cardStyle === 'list' ? 8 : 16,
-          }}>
-            {anime.map((a) => (
-              <AnimeCard key={a.id} anime={a} watchEntry={getEntry(a.id)} onClick={() => navigate(`/anime/${a.id}`)} t={t} cardStyle={cardStyle} />
-            ))}
-          </div>
+          <>
+            <div style={{
+              display: cardStyle === 'list' ? 'flex' : 'grid',
+              flexDirection: cardStyle === 'list' ? 'column' : undefined,
+              gridTemplateColumns: cardStyle === 'list' ? undefined : 'repeat(auto-fill, minmax(162px, 1fr))',
+              gap: cardStyle === 'list' ? 8 : 16,
+            }}>
+              {anime.map((a) => (
+                <AnimeCard key={a.id} anime={a} watchEntry={getEntry(a.id)} onClick={() => navigate(`/anime/${a.id}`)} t={t} cardStyle={cardStyle} />
+              ))}
+            </div>
+
+            {/* Pagination */}
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 36, paddingBottom: 8 }}>
+              <button
+                onClick={() => goPage(page - 1)}
+                disabled={page === 1}
+                style={{
+                  padding: '9px 20px', borderRadius: 8, fontWeight: 700, fontSize: 13,
+                  cursor: page === 1 ? 'not-allowed' : 'pointer',
+                  background: 'transparent', border: `1px solid ${t.border}`,
+                  color: page === 1 ? t.textDim : t.textMuted, transition: 'all .13s',
+                }}
+                onMouseEnter={(e) => { if (page > 1) e.currentTarget.style.borderColor = t.accent; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.border; }}
+              >← Prev</button>
+
+              <span style={{ fontWeight: 700, fontSize: 14, color: t.text, minWidth: 80, textAlign: 'center' }}>
+                Page {page}
+              </span>
+
+              <button
+                onClick={() => goPage(page + 1)}
+                disabled={!hasNext}
+                style={{
+                  padding: '9px 20px', borderRadius: 8, fontWeight: 700, fontSize: 13,
+                  cursor: !hasNext ? 'not-allowed' : 'pointer',
+                  background: 'transparent', border: `1px solid ${t.border}`,
+                  color: !hasNext ? t.textDim : t.textMuted, transition: 'all .13s',
+                }}
+                onMouseEnter={(e) => { if (hasNext) e.currentTarget.style.borderColor = t.accent; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.border; }}
+              >Next →</button>
+            </div>
+          </>
         )}
       </div>
     </div>
   );
 }
 
-function SkeletonGrid({ t, cardStyle }) {
+function CardSkeleton({ t, cardStyle }) {
   return (
     <div style={{
       display: cardStyle === 'list' ? 'flex' : 'grid',
@@ -142,14 +257,43 @@ function SkeletonGrid({ t, cardStyle }) {
       gridTemplateColumns: cardStyle === 'list' ? undefined : 'repeat(auto-fill, minmax(162px, 1fr))',
       gap: cardStyle === 'list' ? 8 : 16,
     }}>
-      {Array.from({ length: 12 }).map((_, i) => (
-        <div key={i} style={{
-          background: t.surface, borderRadius: 10, overflow: 'hidden',
-          border: `1px solid ${t.border}`,
-          height: cardStyle === 'list' ? 90 : 220,
-          animation: 'pulse 1.5s ease-in-out infinite',
-        }} />
+      {Array.from({ length: 24 }).map((_, i) => (
+        cardStyle === 'list' ? (
+          <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'center', background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: '10px 16px', height: 88 }}>
+            <div className="skeleton" style={{ width: 48, height: 68, borderRadius: 4, background: t.surface2 }} />
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="skeleton" style={{ width: '55%', height: 14, borderRadius: 4, background: t.surface2 }} />
+              <div className="skeleton" style={{ width: '35%', height: 11, borderRadius: 4, background: t.surface2 }} />
+            </div>
+          </div>
+        ) : (
+          <div key={i} style={{ background: t.surface, borderRadius: 10, overflow: 'hidden', border: `1px solid ${t.border}` }}>
+            <div className="skeleton" style={{ height: 170, background: t.surface2 }} />
+            <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+              <div className="skeleton" style={{ height: 13, width: '80%', borderRadius: 4, background: t.surface2 }} />
+              <div className="skeleton" style={{ height: 11, width: '55%', borderRadius: 4, background: t.surface2 }} />
+              <div className="skeleton" style={{ height: 11, width: '40%', borderRadius: 4, background: t.surface2 }} />
+            </div>
+          </div>
+        )
       ))}
+    </div>
+  );
+}
+
+function SpotlightSkeleton({ t }) {
+  return (
+    <div style={{ borderBottom: `1px solid ${t.border}`, padding: '36px 40px', display: 'flex', gap: 32, alignItems: 'center' }}>
+      <div className="skeleton" style={{ width: 110, height: 155, borderRadius: 6, flexShrink: 0, background: t.surface2 }} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="skeleton" style={{ width: 80, height: 10, borderRadius: 4, background: t.surface2 }} />
+        <div className="skeleton" style={{ width: '50%', height: 28, borderRadius: 6, background: t.surface2 }} />
+        <div className="skeleton" style={{ width: '30%', height: 13, borderRadius: 4, background: t.surface2 }} />
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[60, 72, 54].map((w, i) => <div key={i} className="skeleton" style={{ width: w, height: 22, borderRadius: 5, background: t.surface2 }} />)}
+        </div>
+        <div className="skeleton" style={{ width: 110, height: 38, borderRadius: 8, background: t.surface2 }} />
+      </div>
     </div>
   );
 }

@@ -25,6 +25,7 @@ export function normaliseAnime(a) {
     rating:  a.score   ?? 0,
     eps:     a.episodes ?? '?',
     year:    a.year    ?? new Date().getFullYear(),
+    type:    a.type    ?? null,
     studio:  (a.studios ?? [])[0] ?? '',
     desc:    a.synopsis ?? '',
     image:   a.image   ?? a.imageSm ?? null,
@@ -51,22 +52,25 @@ function genColor(id) { return PALETTE[(id ?? 0) % PALETTE.length]; }
 export function useTopAnime(params = {}) {
   return useQuery({
     queryKey:  animeKeys.top(params),
-    queryFn:   () => animeApi.top(params).then((r) => r.items.map(normaliseAnime)),
+    queryFn:   () => animeApi.top(params).then((r) => ({
+      items:      (r.items || []).map(normaliseAnime),
+      pagination: r.pagination ?? null,
+    })),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 }
 
-/**
- * Search / browse with filters.
- * Requires at least one param; skip the query if nothing is provided.
- */
 export function useAnimeSearch(params = {}) {
-  const hasParams = Object.values(params).some(Boolean);
+  const { page, limit, ...filterParams } = params; // eslint-disable-line no-unused-vars
+  const hasFilters = Object.values(filterParams).some(Boolean);
   return useQuery({
     queryKey:  animeKeys.search(params),
-    queryFn:   () => animeApi.search(params).then((r) => r.items.map(normaliseAnime)),
-    enabled:   hasParams,
+    queryFn:   () => animeApi.search(params).then((r) => ({
+      items:      (r.items || []).map(normaliseAnime),
+      pagination: r.pagination ?? null,
+    })),
+    enabled:   hasFilters,
     staleTime: 2 * 60 * 1000,
     retry: 1,
   });
@@ -88,6 +92,17 @@ export function useGenres() {
     queryKey:  animeKeys.genres(),
     queryFn:   () => animeApi.genres(),
     staleTime: 60 * 60 * 1000,
+    retry: 1,
+  });
+}
+
+/** Characters + voice actors for a detail page */
+export function useAnimeCharacters(animeId) {
+  return useQuery({
+    queryKey:  ['anime', 'characters', animeId],
+    queryFn:   () => animeApi.characters(animeId),
+    enabled:   !!animeId,
+    staleTime: 24 * 60 * 60 * 1000,
     retry: 1,
   });
 }
