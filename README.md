@@ -76,6 +76,13 @@ GOOGLE_CLIENT_SECRET=your_google_client_secret
 GOOGLE_CALLBACK_URL=http://localhost:4000/api/auth/google/callback
 
 CLIENT_URL=http://localhost:5174
+
+# Optional — welcome emails for new signups (logged to console when unset)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASS=your_smtp_password
+MAIL_FROM="Tsugi <no-reply@yourdomain.com>"
 ```
 
 > The defaults in `.env.example` work against the Docker Compose infrastructure out of the box.

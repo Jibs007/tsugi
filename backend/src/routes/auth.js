@@ -2,6 +2,7 @@ import { Router } from 'express';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import * as authService from '../services/authService.js';
+import { sendWelcomeEmail } from '../services/mailService.js';
 import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
@@ -58,6 +59,7 @@ router.post('/signup', async (req, res, next) => {
   try {
     const { user, accessToken, refreshToken } = await authService.signup(req.body);
     setRefreshCookie(res, refreshToken);
+    sendWelcomeEmail(user); // fire-and-forget — never blocks or fails signup
     res.status(201).json({ user, accessToken });
   } catch (err) {
     next(err);
