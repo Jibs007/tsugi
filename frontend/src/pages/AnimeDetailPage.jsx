@@ -16,6 +16,9 @@ function getYouTubeId(embedUrl) {
   return m ? m[1] : null;
 }
 
+const fmt = (n) => (n == null ? '—' : n.toLocaleString());
+const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
 export default function AnimeDetailPage({ user, onAuthClick }) {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -24,7 +27,7 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
   const [showListPicker, setShowListPicker] = useState(false);
   const [toast, setToast] = useState(null);
 
-  const { data: anime, isLoading, isError } = useAnimeDetail(id);
+  const { data: anime, isLoading, isError, refetch } = useAnimeDetail(id);
   const { data: chars = [] }  = useAnimeCharacters(id);
   const { data: recs  = [] }  = useRecommendations(id);
   const entry = entries.find((e) => e.animeId === Number(id));
@@ -34,12 +37,24 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
     return () => { document.title = 'Tsugi 次 · Anime Watchlist'; };
   }, [anime?.title]);
 
+  // New page = scroll back to top (the scroll container persists across routes)
+  useEffect(() => {
+    document.getElementById('main-scroll')?.scrollTo({ top: 0 });
+  }, [id]);
+
   if (isLoading) return <DetailSkeleton t={t} />;
   if (isError || !anime) {
     return (
       <div style={{ padding: 60, textAlign: 'center', color: t.textMuted }}>
-        Anime not found.{' '}
-        <span onClick={() => navigate('/')} style={{ color: t.accent, cursor: 'pointer' }}>Go home</span>
+        <div style={{ marginBottom: 14 }}>Couldn't load this anime.</div>
+        <button
+          onClick={() => refetch()}
+          style={{ background: t.accent, border: 'none', borderRadius: 7, color: '#fff', fontWeight: 700, fontSize: 13, padding: '9px 18px', cursor: 'pointer', marginRight: 10 }}
+        >Retry</button>
+        <button
+          onClick={() => navigate('/')}
+          style={{ background: 'transparent', border: `1px solid ${t.border}`, borderRadius: 7, color: t.textMuted, fontWeight: 600, fontSize: 13, padding: '9px 18px', cursor: 'pointer' }}
+        >Go home</button>
       </div>
     );
   }
@@ -63,7 +78,6 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
     fontWeight: 700, fontSize: 13, transition: 'all .13s', border: 'none',
   };
 
-  // Trailer
   const ytId = getYouTubeId(anime.trailer);
 
   // Related entries — only anime, sorted by relation type order
@@ -83,45 +97,95 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
     ...(anime.external  || []),
   ].filter((l) => l.name && l.url);
 
+  const premiered = anime.season ? `${cap(anime.season)} ${anime.year ?? ''}`.trim() : (anime.year || null);
+
+  // MAL-style information panel rows — empty values are skipped
+  const infoRows = [
+    ['Type',       anime.type],
+    ['Episodes',   anime.eps],
+    ['Status',     anime.airStatus],
+    ['Aired',      anime.aired],
+    ['Premiered',  premiered],
+    ['Broadcast',  anime.broadcast],
+    ['Studios',    anime.studios.join(', ')],
+    ['Producers',  anime.producers.slice(0, 4).join(', ')],
+    ['Licensors',  anime.licensors.slice(0, 3).join(', ')],
+    ['Source',     anime.source],
+    ['Duration',   anime.duration],
+    ['Rating',     anime.ageRating],
+  ].filter(([, v]) => v != null && v !== '');
+
+  const statCards = [
+    { label: 'Score',      value: anime.rating != null ? `★ ${anime.rating}` : '—', sub: anime.scoredBy ? `${fmt(anime.scoredBy)} users` : null, highlight: true },
+    { label: 'Ranked',     value: anime.rank       != null ? `#${fmt(anime.rank)}`       : '—' },
+    { label: 'Popularity', value: anime.popularity != null ? `#${fmt(anime.popularity)}` : '—' },
+    { label: 'Members',    value: fmt(anime.members) },
+    { label: 'Favorites',  value: fmt(anime.favorites) },
+  ];
+
+  const genreChips = [
+    ...anime.genres.map((g) => ({ label: g, kind: 'genre' })),
+    ...anime.themes.map((g) => ({ label: g, kind: 'theme' })),
+    ...anime.demographics.map((g) => ({ label: g, kind: 'demo' })),
+  ];
+
   return (
-    <div style={{ padding: '40px', maxWidth: 960 }} className="animate-fade-in">
+    <div style={{ padding: '32px 40px', maxWidth: 1100 }} className="animate-fade-in">
       <button
         onClick={() => navigate(-1)}
-        style={{ background: 'transparent', border: 'none', color: t.textMuted, fontWeight: 600, fontSize: 13, cursor: 'pointer', marginBottom: 24, padding: 0 }}
+        style={{ background: 'transparent', border: 'none', color: t.textMuted, fontWeight: 600, fontSize: 13, cursor: 'pointer', marginBottom: 20, padding: 0 }}
       >
         ← Back
       </button>
 
-      {/* Hero row */}
-      <div style={{ display: 'flex', gap: 36, marginBottom: 36 }}>
-        <AnimeCover anime={anime} width={180} height={252} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 800, fontSize: 34, color: t.text, lineHeight: 1.1, marginBottom: 4 }}>{anime.title}</div>
-          <div style={{ fontSize: 14, color: t.textMuted, marginBottom: 16 }}>{anime.jp}</div>
+      {/* Title block */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontWeight: 800, fontSize: 32, color: t.text, lineHeight: 1.15, marginBottom: 4 }}>{anime.title}</div>
+        <div style={{ fontSize: 14, color: t.textMuted }}>
+          {anime.titleJp}
+          {anime.synonyms.length > 0 && (
+            <span style={{ color: t.textDim }}> · {anime.synonyms.slice(0, 2).join(' · ')}</span>
+          )}
+        </div>
+      </div>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18, alignItems: 'center' }}>
-            {anime.genres.map((g) => (
-              <span key={g} style={{ fontSize: 12, fontWeight: 700, color: t.accent2, background: t.accentMuted, borderRadius: 5, padding: '3px 10px' }}>{g}</span>
-            ))}
-            <StatusBadge status={anime.status} />
+      {/* Stats strip — MAL style */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 24, flexWrap: 'wrap' }}>
+        {statCards.map((s) => (
+          <div key={s.label} style={{
+            background: s.highlight ? t.accentMuted : t.surface,
+            border: `1px solid ${s.highlight ? `${t.accent}55` : t.border}`,
+            borderRadius: 10, padding: '10px 18px', minWidth: 108,
+          }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: s.highlight ? t.accent : t.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 3 }}>{s.label}</div>
+            <div style={{ fontWeight: 800, fontSize: 18, color: t.text }}>{s.value}</div>
+            {s.sub && <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>{s.sub}</div>}
           </div>
+        ))}
+      </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 20 }}>
-            {[['Score', anime.rating != null ? `★ ${anime.rating}` : '—'], ['Episodes', anime.eps], ['Year', anime.year || '—'], ['Studio', anime.studio || '—']].map(([label, val]) => (
-              <div key={label} style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 14px' }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 3, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
-                <div style={{ fontWeight: 800, fontSize: 16, color: t.text }}>{val}</div>
+      {/* Two-column body: info panel left (MAL-style), content right */}
+      <div style={{ display: 'flex', gap: 32, alignItems: 'flex-start' }}>
+        {/* ── Left column ── */}
+        <div style={{ width: 225, flexShrink: 0 }}>
+          <AnimeCover anime={anime} width={225} height={318} />
+
+          {/* Information panel */}
+          <div style={{ marginTop: 16, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: t.text, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${t.border}` }}>
+              Information
+            </div>
+            {infoRows.map(([label, val]) => (
+              <div key={label} style={{ marginBottom: 8, fontSize: 12, lineHeight: 1.45 }}>
+                <span style={{ fontWeight: 700, color: t.textMuted }}>{label}: </span>
+                <span style={{ color: t.text }}>{val}</span>
               </div>
             ))}
           </div>
 
-          <p style={{ fontSize: 14, color: t.textMuted, lineHeight: 1.75, marginBottom: 24, maxWidth: 540 }}>
-            {anime.desc || 'No synopsis available yet.'}
-          </p>
-
-          {/* Streaming badges */}
+          {/* Links */}
           {streamLinks.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 18 }}>
+            <div style={{ marginTop: 12, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {streamLinks.map((l) => (
                 <a
                   key={l.url}
@@ -139,9 +203,25 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
               ))}
             </div>
           )}
+        </div>
 
-          {/* Status buttons */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', position: 'relative', alignItems: 'center' }}>
+        {/* ── Right column ── */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Genre / theme / demographic chips */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+            {genreChips.map((g) => (
+              <span key={`${g.kind}-${g.label}`} style={{
+                fontSize: 12, fontWeight: 700, borderRadius: 5, padding: '3px 10px',
+                color:      g.kind === 'genre' ? t.accent2 : t.textMuted,
+                background: g.kind === 'genre' ? t.accentMuted : t.surface,
+                border:     g.kind === 'genre' ? 'none' : `1px solid ${t.border}`,
+              }}>{g.label}</span>
+            ))}
+            <StatusBadge status={anime.status} />
+          </div>
+
+          {/* Watch status + list actions */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', position: 'relative', alignItems: 'center', marginBottom: 24 }}>
             {Object.entries(STATUS_LABELS).map(([key, label]) => (
               <button
                 key={key}
@@ -193,105 +273,141 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
               </div>
             )}
           </div>
-        </div>
-      </div>
 
-      {/* Trailer */}
-      {ytId && (
-        <Section title="Trailer" t={t}>
-          <a
-            href={`https://www.youtube.com/watch?v=${ytId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: 'inline-block', position: 'relative', borderRadius: 10, overflow: 'hidden', border: `1px solid ${t.border}` }}
-          >
-            <img
-              src={`https://img.youtube.com/vi/${ytId}/hqdefault.jpg`}
-              alt="Trailer thumbnail"
-              style={{ display: 'block', width: 320, height: 180, objectFit: 'cover' }}
-            />
-            <div style={{
-              position: 'absolute', inset: 0,
-              background: 'rgba(0,0,0,0.35)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <div style={{
-                width: 56, height: 56, borderRadius: '50%',
-                background: 'rgba(255,255,255,0.9)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <span style={{ fontSize: 22, marginLeft: 4 }}>▶</span>
-              </div>
-            </div>
-          </a>
-        </Section>
-      )}
+          {/* Synopsis */}
+          <Section title="Synopsis" t={t}>
+            <p style={{ fontSize: 14, color: t.textMuted, lineHeight: 1.75, whiteSpace: 'pre-line' }}>
+              {anime.desc || 'No synopsis available yet.'}
+            </p>
+          </Section>
 
-      {/* Characters */}
-      {chars.length > 0 && (
-        <Section title="Characters" t={t}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
-            {chars.map((c) => (
-              <div key={c.id} style={{ display: 'flex', gap: 10, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, overflow: 'hidden' }}>
-                <div style={{ width: 50, flexShrink: 0, background: t.surface2 }}>
-                  {c.image
-                    ? <img src={c.image} alt={c.name} style={{ width: '100%', height: 70, objectFit: 'cover', display: 'block' }} />
-                    : <div style={{ width: '100%', height: 70, background: t.surface2 }} />
-                  }
+          {/* Background */}
+          {anime.background && (
+            <Section title="Background" t={t}>
+              <p style={{ fontSize: 13, color: t.textMuted, lineHeight: 1.7, whiteSpace: 'pre-line' }}>{anime.background}</p>
+            </Section>
+          )}
+
+          {/* Trailer */}
+          {ytId && (
+            <Section title="Trailer" t={t}>
+              <a
+                href={`https://www.youtube.com/watch?v=${ytId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: 'inline-block', position: 'relative', borderRadius: 10, overflow: 'hidden', border: `1px solid ${t.border}` }}
+              >
+                <img
+                  src={`https://img.youtube.com/vi/${ytId}/hqdefault.jpg`}
+                  alt="Trailer thumbnail"
+                  style={{ display: 'block', width: 320, height: 180, objectFit: 'cover' }}
+                />
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  background: 'rgba(0,0,0,0.35)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: '50%',
+                    background: 'rgba(255,255,255,0.9)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <span style={{ fontSize: 22, marginLeft: 4 }}>▶</span>
+                  </div>
                 </div>
-                <div style={{ padding: '8px 8px 8px 0', minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 12, color: t.text, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
-                  {c.va && <div style={{ fontSize: 11, color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>CV: {c.va}</div>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
+              </a>
+            </Section>
+          )}
 
-      {/* Related entries */}
-      {relations.length > 0 && (
-        <Section title="Related" t={t}>
-          {relations.map((group) => (
-            <div key={group.relation} style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>{group.relation}</div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {group.entries.map((entry) => (
-                  <RelationCard key={entry.mal_id} entry={entry} t={t} navigate={navigate} />
+          {/* Opening / Ending themes */}
+          {(anime.openings.length > 0 || anime.endings.length > 0) && (
+            <Section title="Theme Songs" t={t}>
+              <div style={{ display: 'grid', gridTemplateColumns: anime.openings.length && anime.endings.length ? '1fr 1fr' : '1fr', gap: 20 }}>
+                {[['Openings', anime.openings], ['Endings', anime.endings]].filter(([, list]) => list.length > 0).map(([label, list]) => (
+                  <div key={label}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>{label}</div>
+                    {list.map((song, i) => (
+                      <div key={i} style={{ fontSize: 13, color: t.textMuted, lineHeight: 1.5, marginBottom: 6, display: 'flex', gap: 8 }}>
+                        <span style={{ color: t.accent2 }}>♪</span>
+                        <span>{song}</span>
+                      </div>
+                    ))}
+                  </div>
                 ))}
               </div>
-            </div>
-          ))}
-        </Section>
-      )}
+            </Section>
+          )}
 
-      {/* Recommendations */}
-      {recs.length > 0 && (
-        <Section title="You Might Also Like" t={t}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 12 }}>
-            {recs.slice(0, 6).map((rec) => (
-              <div
-                key={rec.id}
-                onClick={() => navigate(`/anime/${rec.id}`)}
-                style={{ cursor: 'pointer', borderRadius: 8, overflow: 'hidden', background: t.surface, border: `1px solid ${t.border}`, transition: 'border-color .13s' }}
-                onMouseEnter={(e) => (e.currentTarget.style.borderColor = t.accent + '66')}
-                onMouseLeave={(e) => (e.currentTarget.style.borderColor = t.border)}
-              >
-                <div style={{ height: 120, background: t.surface2 }}>
-                  {rec.image
-                    ? <img src={rec.image} alt={rec.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                    : <div style={{ width: '100%', height: '100%', background: `${rec.color}22` }} />
-                  }
+          {/* Related entries */}
+          {relations.length > 0 && (
+            <Section title="Related" t={t}>
+              {relations.map((group) => (
+                <div key={group.relation} style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>{group.relation}</div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    {group.entries.map((rel) => (
+                      <RelationCard key={rel.mal_id} entry={rel} t={t} navigate={navigate} />
+                    ))}
+                  </div>
                 </div>
-                <div style={{ padding: '8px 10px' }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rec.title}</div>
-                  {rec.rating > 0 && <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>★ {rec.rating}</div>}
-                </div>
+              ))}
+            </Section>
+          )}
+
+          {/* Characters */}
+          {chars.length > 0 && (
+            <Section title="Characters & Voice Actors" t={t}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+                {chars.map((c) => (
+                  <div key={c.id} style={{ display: 'flex', gap: 10, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, overflow: 'hidden' }}>
+                    <div style={{ width: 50, flexShrink: 0, background: t.surface2 }}>
+                      {c.image
+                        ? <img src={c.image} alt={c.name} style={{ width: '100%', height: 70, objectFit: 'cover', display: 'block' }} />
+                        : <div style={{ width: '100%', height: 70, background: t.surface2 }} />
+                      }
+                    </div>
+                    <div style={{ padding: '8px 8px 8px 0', minWidth: 0, flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: 12, color: t.text, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                      {c.va && <div style={{ fontSize: 11, color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>CV: {c.va}</div>}
+                    </div>
+                    {c.vaImage && (
+                      <img src={c.vaImage} alt={c.va} style={{ width: 50, height: 70, objectFit: 'cover', display: 'block', flexShrink: 0 }} />
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Section>
-      )}
+            </Section>
+          )}
+
+          {/* Recommendations */}
+          {recs.length > 0 && (
+            <Section title="You Might Also Like" t={t}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 12 }}>
+                {recs.slice(0, 8).map((rec) => (
+                  <div
+                    key={rec.id}
+                    onClick={() => navigate(`/anime/${rec.id}`)}
+                    style={{ cursor: 'pointer', borderRadius: 8, overflow: 'hidden', background: t.surface, border: `1px solid ${t.border}`, transition: 'border-color .13s' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = t.accent + '66')}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = t.border)}
+                  >
+                    <div style={{ height: 150, background: t.surface2 }}>
+                      {rec.image
+                        ? <img src={rec.image} alt={rec.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        : <div style={{ width: '100%', height: '100%', background: `${rec.color}22` }} />
+                      }
+                    </div>
+                    <div style={{ padding: '8px 10px' }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rec.title}</div>
+                      {rec.votes != null && <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>{rec.votes} votes</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+        </div>
+      </div>
 
       {toast && (
         <div style={{
@@ -308,8 +424,8 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
 
 function Section({ title, t, children }) {
   return (
-    <div style={{ marginBottom: 40 }}>
-      <div style={{ fontWeight: 800, fontSize: 18, color: t.text, marginBottom: 16, paddingBottom: 10, borderBottom: `1px solid ${t.border}` }}>
+    <div style={{ marginBottom: 36 }}>
+      <div style={{ fontWeight: 800, fontSize: 17, color: t.text, marginBottom: 14, paddingBottom: 10, borderBottom: `1px solid ${t.border}` }}>
         {title}
       </div>
       {children}
@@ -325,7 +441,7 @@ function RelationCard({ entry, t, navigate }) {
   return (
     <div
       onClick={() => navigate(`/anime/${entry.mal_id}`)}
-      style={{ display: 'flex', alignItems: 'center', gap: 10, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', maxWidth: 260, padding: '10px 14px', transition: 'border-color .13s' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', maxWidth: 280, padding: '10px 14px', transition: 'border-color .13s' }}
       onMouseEnter={(e) => (e.currentTarget.style.borderColor = t.accent + '66')}
       onMouseLeave={(e) => (e.currentTarget.style.borderColor = t.border)}
     >
@@ -341,24 +457,33 @@ function RelationCard({ entry, t, navigate }) {
 
 function DetailSkeleton({ t }) {
   return (
-    <div style={{ padding: '40px', maxWidth: 960 }} className="animate-fade-in">
-      <div className="skeleton" style={{ width: 60, height: 16, background: t.surface, borderRadius: 6, marginBottom: 24 }} />
-      <div style={{ display: 'flex', gap: 36 }}>
-        <div className="skeleton" style={{ width: 180, height: 252, background: t.surface, borderRadius: 10, flexShrink: 0 }} />
+    <div style={{ padding: '32px 40px', maxWidth: 1100 }} className="animate-fade-in">
+      <div className="skeleton" style={{ width: 60, height: 16, background: t.surface, borderRadius: 6, marginBottom: 20 }} />
+      <div className="skeleton" style={{ width: '55%', height: 34, background: t.surface, borderRadius: 8, marginBottom: 8 }} />
+      <div className="skeleton" style={{ width: '30%', height: 15, background: t.surface, borderRadius: 6, marginBottom: 24 }} />
+      <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="skeleton" style={{ width: 110, height: 64, background: t.surface, borderRadius: 10 }} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 32 }}>
+        <div style={{ width: 225, flexShrink: 0 }}>
+          <div className="skeleton" style={{ width: 225, height: 318, background: t.surface, borderRadius: 10, marginBottom: 16 }} />
+          <div className="skeleton" style={{ width: '100%', height: 220, background: t.surface, borderRadius: 10 }} />
+        </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="skeleton" style={{ width: '60%', height: 36, background: t.surface, borderRadius: 8 }} />
-          <div className="skeleton" style={{ width: '35%', height: 16, background: t.surface, borderRadius: 6 }} />
           <div style={{ display: 'flex', gap: 8 }}>
             {[80, 70, 90].map((w, i) => (
               <div key={i} className="skeleton" style={{ width: w, height: 24, background: t.surface, borderRadius: 5 }} />
             ))}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginTop: 4 }}>
-            {[0,1,2,3].map((i) => (
-              <div key={i} className="skeleton" style={{ height: 60, background: t.surface, borderRadius: 8 }} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[90, 110, 96, 84].map((w, i) => (
+              <div key={i} className="skeleton" style={{ width: w, height: 34, background: t.surface, borderRadius: 7 }} />
             ))}
           </div>
-          <div className="skeleton" style={{ height: 80, background: t.surface, borderRadius: 8 }} />
+          <div className="skeleton" style={{ height: 140, background: t.surface, borderRadius: 8, marginTop: 8 }} />
+          <div className="skeleton" style={{ height: 90, background: t.surface, borderRadius: 8 }} />
         </div>
       </div>
     </div>

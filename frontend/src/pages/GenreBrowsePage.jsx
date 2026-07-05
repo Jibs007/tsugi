@@ -70,7 +70,7 @@ export default function GenreBrowsePage() {
 function GenreChip({ genre, t, navigate }) {
   return (
     <button
-      onClick={() => navigate(`/?genres=${genre.id}`)}
+      onClick={() => navigate(`/genre/${genre.id}`)}
       style={{
         display: 'flex', alignItems: 'center', gap: 6,
         padding: '7px 14px', background: 'transparent',

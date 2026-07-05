@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../stores/authStore';
 
 const NAV = [
   { path: '/',          label: 'Discover', icon: '◈' },
@@ -11,11 +12,22 @@ const NAV = [
 export default function Sidebar({ user, onAuthClick, t }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const logout = useAuthStore((s) => s.logout);
 
-  // Navigate to Discover with a reset signal so DiscoverPage clears all filters
+  const handleLogout = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await logout();
+    navigate('/');
+  };
+
+  // Always land on a clean Discover page: navigate() bumps location.key even
+  // when already on "/", which resets DiscoverPage's pagination/carousel, and
+  // a plain "/" clears any ?q= / ?genres= filters.
   const handleLogoClick = (e) => {
     e.preventDefault();
-    navigate('/', { state: { reset: Date.now() } });
+    navigate('/');
+    document.getElementById('main-scroll')?.scrollTo({ top: 0 });
   };
 
   return (
@@ -97,7 +109,7 @@ export default function Sidebar({ user, onAuthClick, t }) {
       {user ? (
         <Link to="/profile" style={{ textDecoration: 'none' }}>
           <div
-            style={{ padding: '14px 22px', borderTop: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+            style={{ padding: '14px 16px 14px 22px', borderTop: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
             onMouseEnter={(e) => (e.currentTarget.style.background = t.surface)}
             onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
           >
@@ -109,10 +121,22 @@ export default function Sidebar({ user, onAuthClick, t }) {
             }}>
               {(user?.username?.[0] || user?.email?.[0] || 'U').toUpperCase()}
             </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 13, color: t.text }}>{user?.username || user?.email}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username || user?.email}</div>
               <div style={{ fontSize: 11, color: t.textMuted }}>View profile</div>
             </div>
+            <button
+              onClick={handleLogout}
+              title="Log out"
+              style={{
+                flexShrink: 0, width: 30, height: 30, borderRadius: 7, cursor: 'pointer',
+                background: 'transparent', border: `1px solid ${t.border}`,
+                color: t.textMuted, fontSize: 14, lineHeight: 1, padding: 0,
+                transition: 'all .13s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.borderColor = '#f8717155'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = t.textMuted; e.currentTarget.style.borderColor = t.border; }}
+            >⏻</button>
           </div>
         </Link>
       ) : (

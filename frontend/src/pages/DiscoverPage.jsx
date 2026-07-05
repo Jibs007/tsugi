@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import AnimeCard from '../components/AnimeCard';
 import AnimeCover from '../components/AnimeCover';
@@ -57,13 +57,13 @@ export default function DiscoverPage({ onAuthClick }) {
 
   const isFiltering = !!(urlQuery || urlGenreId);
 
-  const { data: topData, isLoading: topLoading } = useTopAnime({
+  const { data: topData, isLoading: topLoading, isError: topError, refetch: refetchTop } = useTopAnime({
     ...(topFilter ? { filter: topFilter } : {}),
     limit: 24,
     page,
   });
 
-  const { data: searchData, isLoading: searchLoading } = useAnimeSearch(
+  const { data: searchData, isLoading: searchLoading, isError: searchError, refetch: refetchSearch } = useAnimeSearch(
     isFiltering
       ? { q: urlQuery || undefined, genres: urlGenreId || undefined, limit: 24, page }
       : {},
@@ -77,12 +77,27 @@ export default function DiscoverPage({ onAuthClick }) {
 
   const activeData = isFiltering ? searchData   : topData;
   const loading    = isFiltering ? searchLoading : topLoading;
+  const loadError  = isFiltering ? searchError   : topError;
+  const retry      = isFiltering ? refetchSearch : refetchTop;
   const anime      = activeData?.items      ?? [];
   const pagination = activeData?.pagination ?? null;
   const hasNext    = pagination?.has_next_page ?? (anime.length === 24);
 
-  // Carousel data — first 5 from top list
-  const featuredList = !isFiltering ? (topData?.items?.slice(0, 5) ?? []) : [];
+  // Carousel data — a fresh random 5 of the top list per visit, so the
+  // spotlight isn't the same anime every time you open the app.
+  const [shuffleSeed] = useState(() => Math.random());
+  const featuredList = useMemo(() => {
+    if (isFiltering) return [];
+    const items = [...(topData?.items ?? [])];
+    // Seeded Fisher–Yates so the order is stable within a visit
+    let s = Math.floor(shuffleSeed * 2 ** 31);
+    const rand = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    for (let i = items.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [items[i], items[j]] = [items[j], items[i]];
+    }
+    return items.slice(0, 5);
+  }, [topData, isFiltering, shuffleSeed]);
   const featured = featuredList[activeIdx] ?? featuredList[0];
 
   // Auto-advance carousel every 5s
@@ -228,21 +243,31 @@ export default function DiscoverPage({ onAuthClick }) {
       <div style={{ padding: '24px 40px' }}>
         {loading ? (
           <CardSkeleton t={t} cardStyle={cardStyle} />
-        ) : anime.length === 0 ? (
+        ) : loadError || anime.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
-            <div style={{ fontSize: 15, color: t.textMuted, marginBottom: 12 }}>
-              {isFiltering
-                ? `No results${urlQuery ? ` for "${urlQuery}"` : ''}.`
-                : "Couldn't load anime right now — check your connection and try again."}
+            <div style={{ fontSize: 15, color: t.textMuted, marginBottom: 14 }}>
+              {loadError
+                ? "Couldn't load anime right now — this is usually a temporary MyAnimeList rate limit."
+                : `No results${urlQuery ? ` for "${urlQuery}"` : ''}.`}
             </div>
-            {isFiltering && (
-              <button
-                onClick={() => navigate('/')}
-                style={{ background: 'transparent', border: `1px solid ${t.border}`, color: t.textMuted, borderRadius: 7, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
-              >
-                Clear filters
-              </button>
-            )}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              {loadError && (
+                <button
+                  onClick={() => retry()}
+                  style={{ background: t.accent, border: 'none', color: '#fff', borderRadius: 7, padding: '8px 18px', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}
+                >
+                  Retry
+                </button>
+              )}
+              {isFiltering && (
+                <button
+                  onClick={() => navigate('/')}
+                  style={{ background: 'transparent', border: `1px solid ${t.border}`, color: t.textMuted, borderRadius: 7, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <>

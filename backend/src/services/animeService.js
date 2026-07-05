@@ -79,7 +79,9 @@ function normalise(raw) {
   return {
     id:          raw.mal_id,
     title:       raw.title_english || raw.title,
+    titleEn:     raw.title_english || null,
     titleJp:     raw.title_japanese || raw.titles?.find((t) => t.type === 'Japanese')?.title || raw.title,
+    synonyms:    raw.title_synonyms || [],
     malUrl:      raw.url || null,
     image:       raw.images?.webp?.large_image_url || raw.images?.jpg?.large_image_url || null,
     imageSm:     raw.images?.webp?.image_url       || raw.images?.jpg?.image_url       || null,
@@ -90,16 +92,28 @@ function normalise(raw) {
     airing:      raw.airing,
     season:      raw.season,
     year:        raw.year || (raw.aired?.from ? new Date(raw.aired.from).getFullYear() : null),
+    aired:       raw.aired?.string || null,          // "Apr 5, 2009 to Jul 4, 2010"
+    broadcast:   raw.broadcast?.string || null,      // "Sundays at 17:00 (JST)"
+    duration:    raw.duration || null,               // "24 min per ep"
+    ageRating:   raw.rating   || null,               // "R - 17+ (violence & profanity)"
+    source:      raw.source   || null,               // Manga, Light novel, Original …
     score:       raw.score,
     scoredBy:    raw.scored_by,
     rank:        raw.rank,
     popularity:  raw.popularity,
+    members:     raw.members   ?? null,
+    favorites:   raw.favorites ?? null,
     synopsis:    raw.synopsis,
-    studios:     (raw.studios  || []).map((s) => s.name),
+    background:  raw.background || null,
+    studios:     (raw.studios   || []).map((s) => s.name),
+    producers:   (raw.producers || []).map((p) => p.name),
+    licensors:   (raw.licensors || []).map((l) => l.name),
     genres:      (raw.genres   || []).map((g) => ({ id: g.mal_id, name: g.name })),
     themes:      (raw.themes   || []).map((t) => t.name),
     demographics:(raw.demographics || []).map((d) => d.name),
     // full detail only (from /anime/{id}/full)
+    openings:    raw.theme?.openings?.slice(0, 6) || undefined,
+    endings:     raw.theme?.endings?.slice(0, 6)  || undefined,
     relations:   raw.relations || undefined,
     streaming:   raw.streaming || undefined,
     external:    raw.external  || undefined,
@@ -143,7 +157,7 @@ function sortByTitleMatch(items, query) {
 
 // Cache key namespace — bump when the normalised shape changes so stale
 // entries from an older schema are never served.
-const V = 'v2';
+const V = 'v3';
 
 /** Single anime — full detail */
 export async function getById(id) {

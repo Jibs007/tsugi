@@ -25,19 +25,37 @@ export function normaliseAnime(a) {
     rating:  a.score ?? null,          // null = not yet rated (don't show "★ 0")
     scoredBy: a.scoredBy ?? null,
     rank:    a.rank ?? null,
+    popularity: a.popularity ?? null,
+    members:    a.members    ?? null,
+    favorites:  a.favorites  ?? null,
     eps:     a.episodes ?? '?',
     year:    a.year ?? null,           // null = unknown, never fabricate a year
+    season:  a.season ?? null,
     type:    a.type    ?? null,
     studio:  (a.studios ?? [])[0] ?? '',
+    studios: a.studios ?? [],
+    producers: a.producers ?? [],
+    licensors: a.licensors ?? [],
     desc:    a.synopsis ?? '',
+    background: a.background ?? null,
     image:   a.image   ?? a.imageSm ?? null,
     malUrl:  a.malUrl  ?? null,
+    aired:     a.aired     ?? null,
+    broadcast: a.broadcast ?? null,
+    duration:  a.duration  ?? null,
+    ageRating: a.ageRating ?? null,
+    source:    a.source    ?? null,
+    airStatus: a.status ?? null,       // raw MAL string, e.g. "Finished Airing"
+    synonyms:  a.synonyms ?? [],
     // full-detail extras (present only on /anime/:id responses)
     trailer:   a.trailer   ?? null,
     relations: a.relations ?? [],
     streaming: a.streaming ?? [],
     external:  a.external  ?? [],
     themes:    a.themes    ?? [],
+    demographics: a.demographics ?? [],
+    openings:  a.openings ?? [],
+    endings:   a.endings  ?? [],
   };
 }
 
@@ -120,7 +138,7 @@ export function useAnimeCharacters(animeId) {
 export function useRecommendations(animeId) {
   return useQuery({
     queryKey: animeKeys.recs(animeId),
-    queryFn:  () => animeApi.recommendations(animeId).then((items) => items.map(normaliseAnime)),
+    queryFn:  () => animeApi.recommendations(animeId).then((items) => items.map((i) => ({ ...normaliseAnime(i), votes: i.votes ?? null }))),
     enabled:  !!animeId,
     staleTime: 10 * 60 * 1000,
     retry: 1,

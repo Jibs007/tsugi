@@ -11,6 +11,7 @@ import BrowseListsPage from './pages/BrowseListsPage';
 import CreateListPage from './pages/CreateListPage';
 import ProfilePage from './pages/ProfilePage';
 import GenreBrowsePage from './pages/GenreBrowsePage';
+import GenrePage from './pages/GenrePage';
 import { useThemeStore } from './stores/themeStore';
 import { useAuthStore } from './stores/authStore';
 import { useUIStore } from './stores/uiStore';
@@ -82,6 +83,7 @@ export default function App() {
             <Route path="/anime/:id"     element={<AnimeDetailPage {...commonProps} />} />
             <Route path="/lists"         element={<BrowseListsPage {...commonProps} />} />
             <Route path="/genres"        element={<GenreBrowsePage />} />
+            <Route path="/genre/:id"     element={<GenrePage />} />
             <Route path="/auth/callback" element={<OAuthCallback />} />
 
             <Route path="/watchlist" element={

@@ -3,13 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import { STATUS_LABELS, STATUS_COLORS } from '../lib/constants';
 import { useWatchlistStore } from '../stores/watchlistStore';
 import { useThemeStore } from '../stores/themeStore';
+import { useAuthStore } from '../stores/authStore';
 import { useAnimeDetail } from '../hooks/useAnime';
 
 export default function ProfilePage({ user }) {
   const navigate = useNavigate();
   const { theme: t } = useThemeStore();
   const { entries, myLists, deleteList } = useWatchlistStore();
+  const logout = useAuthStore((s) => s.logout);
   const [tab, setTab] = useState('lists');
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/');
+  };
 
   const completed = entries.filter((e) => e.status === 'completed');
   const avatar = (user?.username?.[0] || user?.email?.[0] || 'U').toUpperCase();
@@ -26,7 +33,7 @@ export default function ProfilePage({ user }) {
         }}>
           {avatar}
         </div>
-        <div>
+        <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 800, fontSize: 20, color: t.text, marginBottom: 3 }}>{user?.username || user?.email || 'Guest'}</div>
           <div style={{ fontSize: 12, color: t.textMuted, marginBottom: 14 }}>{user?.email}</div>
           <div style={{ display: 'flex', gap: 24 }}>
@@ -38,6 +45,16 @@ export default function ProfilePage({ user }) {
             ))}
           </div>
         </div>
+        <button
+          onClick={handleLogout}
+          style={{
+            alignSelf: 'flex-start', padding: '8px 16px', cursor: 'pointer',
+            background: 'transparent', border: '1px solid #f8717155', color: '#f87171',
+            fontSize: 13, fontWeight: 700, borderRadius: 8, transition: 'all .13s',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = '#f8717115')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+        >⏻ Log Out</button>
       </div>
 
       {/* Tabs */}
