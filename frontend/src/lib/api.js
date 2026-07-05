@@ -39,11 +39,16 @@ export function setRefreshCallbacks(onSuccess, onFail) {
 
 let refreshing = null; // deduplicate concurrent refresh attempts
 
+// A 401 from these endpoints means "bad credentials / no session", not
+// "expired access token" — refreshing would be pointless and would swallow
+// the real error message (e.g. "Invalid email or password").
+const NO_REFRESH = /\/auth\/(login|signup|refresh|logout)/;
+
 api.interceptors.response.use(
   (res) => res.data,
   async (err) => {
     const original = err.config;
-    if (err.response?.status === 401 && !original._retried) {
+    if (err.response?.status === 401 && !original._retried && !NO_REFRESH.test(original.url || '')) {
       original._retried = true;
       try {
         if (!refreshing) {
@@ -55,7 +60,7 @@ api.interceptors.response.use(
         return api(original);
       } catch {
         _onRefreshFail();
-        return Promise.reject(err);
+        return Promise.reject(err.response?.data || err);
       }
     }
     return Promise.reject(err.response?.data || err);

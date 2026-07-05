@@ -31,7 +31,7 @@ export default function AnimeCard({ anime, onClick, watchEntry, t, cardStyle = '
           </div>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: t.text, marginBottom: 4 }}>★ {anime.rating}</div>
+          <div style={{ fontWeight: 700, fontSize: 14, color: t.text, marginBottom: 4 }}>{anime.rating != null ? `★ ${anime.rating}` : '—'}</div>
           {anime.status !== 'completed' && <StatusBadge status={anime.status} small />}
           {watchEntry && (
             <div style={{ marginTop: 5, fontSize: 11, color: STATUS_COLORS[watchEntry.status], fontWeight: 700 }}>
@@ -77,7 +77,7 @@ export default function AnimeCard({ anime, onClick, watchEntry, t, cardStyle = '
             ? <StatusBadge status={anime.status} small />
             : <span style={{ fontSize: 11, color: t.textDim }}>{anime.year || '—'}</span>
           }
-          <span style={{ fontWeight: 700, fontSize: 12, color: t.textMuted }}>★ {anime.rating}</span>
+          <span style={{ fontWeight: 700, fontSize: 12, color: t.textMuted }}>{anime.rating != null ? `★ ${anime.rating}` : '—'}</span>
         </div>
       </div>
 
@@ -104,7 +104,7 @@ export default function AnimeCard({ anime, onClick, watchEntry, t, cardStyle = '
             ))}
           </div>
           <div style={{ display: 'flex', gap: 10, fontSize: 11, color: t.textMuted }}>
-            <span>★ {anime.rating}</span>
+            {anime.rating != null && <span>★ {anime.rating}</span>}
             <span>{anime.eps} eps</span>
             {anime.year && <span>{anime.year}</span>}
           </div>

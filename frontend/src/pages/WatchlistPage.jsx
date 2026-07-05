@@ -21,7 +21,11 @@ export default function WatchlistPage() {
       <div style={{ marginBottom: 28 }}>
         <div style={{ fontWeight: 800, fontSize: 26, color: t.text, marginBottom: 8 }}>My Watchlist</div>
         <div style={{ display: 'flex', gap: 24 }}>
-          {[['Total', entries.length], ['Completed', entries.filter((e) => e.status === 'completed').length]].map(([l, v]) => (
+          {[
+            ['Total', entries.length],
+            ['Completed', entries.filter((e) => e.status === 'completed').length],
+            ['Episodes watched', entries.reduce((s, e) => s + (e.progress || 0), 0)],
+          ].map(([l, v]) => (
             <div key={l}>
               <span style={{ fontWeight: 800, fontSize: 20, color: t.accent }}>{v}</span>
               <span style={{ fontSize: 13, color: t.textMuted, marginLeft: 6 }}>{l}</span>
@@ -93,16 +97,72 @@ function WatchlistItem({ entry, t, navigate, onStatusChange, onRemove }) {
 
   if (!anime) return null;
 
+  const totalEps = typeof anime.eps === 'number' ? anime.eps : null;
+  const progress = entry.progress ?? 0;
+
+  const setProgress = (next) => {
+    const clamped = Math.max(0, totalEps != null ? Math.min(next, totalEps) : next);
+    if (clamped === progress) return;
+    const patch = { progress: clamped };
+    // Watching the last episode = finished (mirrors MAL behaviour)
+    if (totalEps != null && clamped === totalEps && entry.status !== 'completed') patch.status = 'completed';
+    onStatusChange(entry.animeId, patch);
+  };
+
+  const setStatus = (key) => {
+    const patch = { status: key };
+    // Marking completed fills the episode count in, like MAL does
+    if (key === 'completed' && totalEps != null) patch.progress = totalEps;
+    onStatusChange(entry.animeId, patch);
+  };
+
+  const stepBtn = {
+    width: 22, height: 22, borderRadius: 5, cursor: 'pointer',
+    background: 'transparent', border: `1px solid ${t.border}`, color: t.textMuted,
+    fontSize: 12, fontWeight: 700, lineHeight: 1, padding: 0,
+  };
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: '10px 16px' }}>
       <AnimeCover anime={anime} width={48} height={68} style={{ borderRadius: 4 }} />
-      <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => navigate(`/anime/${anime.id}`)}>
-        <div style={{ fontWeight: 700, fontSize: 15, color: t.text }}>{anime.title}</div>
-        <div style={{ fontSize: 12, color: t.textMuted }}>{anime.jp} · {anime.eps} eps</div>
+      <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate(`/anime/${anime.id}`)}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{anime.title}</div>
+        <div style={{ fontSize: 12, color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{anime.jp} · {anime.eps} eps</div>
       </div>
+
+      {/* Episode progress */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <button onClick={() => setProgress(progress - 1)} disabled={progress <= 0} style={{ ...stepBtn, opacity: progress <= 0 ? 0.4 : 1 }}>−</button>
+        <span style={{ fontSize: 12, fontWeight: 700, color: t.text, minWidth: 52, textAlign: 'center' }}>
+          {progress} / {totalEps ?? '?'}
+        </span>
+        <button
+          onClick={() => setProgress(progress + 1)}
+          disabled={totalEps != null && progress >= totalEps}
+          style={{ ...stepBtn, opacity: totalEps != null && progress >= totalEps ? 0.4 : 1 }}
+        >+</button>
+      </div>
+
+      {/* Personal rating */}
+      <select
+        value={entry.rating ?? ''}
+        onChange={(e) => e.target.value && onStatusChange(entry.animeId, { rating: Number(e.target.value) })}
+        title="Your rating"
+        style={{
+          flexShrink: 0, background: t.surface2, border: `1px solid ${t.border}`,
+          color: entry.rating ? t.text : t.textMuted, borderRadius: 6,
+          padding: '4px 6px', fontSize: 12, fontWeight: 600, cursor: 'pointer', outline: 'none',
+        }}
+      >
+        <option value="" disabled>rate</option>
+        {[10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map((n) => (
+          <option key={n} value={n}>★ {n}</option>
+        ))}
+      </select>
+
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
         {Object.entries(STATUS_LABELS).map(([key, label]) => (
-          <button key={key} onClick={() => onStatusChange(entry.animeId, key)} style={{
+          <button key={key} onClick={() => setStatus(key)} style={{
             padding: '5px 10px', cursor: 'pointer',
             background: entry.status === key ? `${STATUS_COLORS[key]}20` : 'transparent',
             border: `1px solid ${entry.status === key ? STATUS_COLORS[key] : t.border}`,
@@ -112,6 +172,7 @@ function WatchlistItem({ entry, t, navigate, onStatusChange, onRemove }) {
         ))}
         <button
           onClick={() => onRemove(entry.animeId)}
+          title="Remove from watchlist"
           style={{ padding: '5px 10px', cursor: 'pointer', background: 'transparent', border: `1px solid ${t.border}`, color: '#f87171', fontSize: 11, fontWeight: 600, borderRadius: 6 }}
         >✕</button>
       </div>

@@ -12,18 +12,44 @@ export default function BrowseListsPage({ user, onAuthClick }) {
   const [publicLists, setPublicLists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [followed, setFollowed] = useState(new Set());
+  const [followerDelta, setFollowerDelta] = useState({}); // optimistic count changes
 
   useEffect(() => {
     listsApi.getPublic()
-      .then((rows) => setPublicLists(rows))
+      .then((rows) => {
+        setPublicLists(rows);
+        // Hydrate follow state from the backend instead of starting empty
+        setFollowed(new Set(rows.filter((r) => r.is_following).map((r) => r.id)));
+      })
       .catch(() => setPublicLists([]))
       .finally(() => setLoading(false));
-  }, []);
+    // Refetch when auth state changes so is_following reflects the session
+  }, [user?.id]);
+
+  const toggleFollow = (list, isFollowed) => {
+    if (!user) { onAuthClick(); return; }
+    setFollowed((prev) => {
+      const next = new Set(prev);
+      isFollowed ? next.delete(list.id) : next.add(list.id);
+      return next;
+    });
+    setFollowerDelta((d) => ({ ...d, [list.id]: (d[list.id] ?? 0) + (isFollowed ? -1 : 1) }));
+    const call = isFollowed ? listsApi.unfollow(list.id) : listsApi.follow(list.id);
+    call.catch(() => {
+      // Roll back on failure
+      setFollowed((prev) => {
+        const next = new Set(prev);
+        isFollowed ? next.add(list.id) : next.delete(list.id);
+        return next;
+      });
+      setFollowerDelta((d) => ({ ...d, [list.id]: (d[list.id] ?? 0) + (isFollowed ? 1 : -1) }));
+    });
+  };
 
   // Merge: public lists + own lists not already in public results
-  const ownListIds = new Set(publicLists.map((l) => l.id));
+  const publicIds = new Set(publicLists.map((l) => l.id));
   const ownAsPublic = myLists
-    .filter((l) => !ownListIds.has(l.id))
+    .filter((l) => !publicIds.has(l.id))
     .map((l) => ({
       ...l,
       author:      user?.username || 'you',
@@ -65,7 +91,8 @@ export default function BrowseListsPage({ user, onAuthClick }) {
           {allLists.map((list) => {
             const animeIds = list.anime_ids ?? list.animeIds ?? [];
             const isFollowed = followed.has(list.id);
-            const isOwn = list.author === (user?.username) || myLists.some((l) => l.id === list.id);
+            const isOwn = (user && list.user_id === user.id) || myLists.some((l) => l.id === list.id);
+            const followerCount = Number(list.followers || 0) + (followerDelta[list.id] ?? 0);
 
             return (
               <div key={list.id} style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, overflow: 'hidden' }}>
@@ -81,7 +108,7 @@ export default function BrowseListsPage({ user, onAuthClick }) {
                     {list.description || list.desc || ''}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 12, color: t.textMuted }}>{Number(list.followers || 0).toLocaleString()} followers</span>
+                    <span style={{ fontSize: 12, color: t.textMuted }}>{followerCount.toLocaleString()} follower{followerCount === 1 ? '' : 's'}</span>
                     <div style={{ display: 'flex', gap: 8 }}>
                       {isOwn && (
                         <button
@@ -91,14 +118,7 @@ export default function BrowseListsPage({ user, onAuthClick }) {
                       )}
                       {!isOwn && (
                         <button
-                          onClick={() => {
-                            if (!user) { onAuthClick(); return; }
-                            setFollowed((prev) => {
-                              const next = new Set(prev);
-                              isFollowed ? next.delete(list.id) : next.add(list.id);
-                              return next;
-                            });
-                          }}
+                          onClick={() => toggleFollow(list, isFollowed)}
                           style={{
                             padding: '6px 14px',
                             background: isFollowed ? t.accentMuted : 'transparent',

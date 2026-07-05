@@ -3,9 +3,8 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import pool from '../db/pool.js';
 
-const ACCESS_TTL  = process.env.JWT_EXPIRES_IN  || '15m';
-const REFRESH_TTL = process.env.REFRESH_EXPIRES_IN || '30d';
-const REFRESH_MS  = 30 * 24 * 60 * 60 * 1000;
+const ACCESS_TTL = process.env.JWT_EXPIRES_IN || '15m';
+const REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
@@ -36,8 +35,20 @@ function safeUser(row) {
 
 // ─── Signup ───────────────────────────────────────────────────────────────────
 
+const EMAIL_RE    = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
+
 export async function signup({ username, email, password }) {
   if (!username || !email || !password) throw Object.assign(new Error('username, email and password are required'), { status: 400 });
+  if (!USERNAME_RE.test(username.trim())) {
+    throw Object.assign(new Error('Username must be 3–30 characters (letters, numbers, underscores)'), { status: 400 });
+  }
+  if (!EMAIL_RE.test(email.trim())) {
+    throw Object.assign(new Error('Please enter a valid email address'), { status: 400 });
+  }
+  if (typeof password !== 'string' || password.length < 8) {
+    throw Object.assign(new Error('Password must be at least 8 characters'), { status: 400 });
+  }
 
   const hash = await bcrypt.hash(password, 12);
 
@@ -138,16 +149,41 @@ export async function logout(rawToken) {
 // Called by Passport after Google verifies the user.
 
 export async function upsertGoogleUser({ googleId, email, displayName, avatarUrl }) {
-  const { rows } = await pool.query(
-    `INSERT INTO users (google_id, email, username, avatar_url)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (google_id) DO UPDATE
-       SET avatar_url = EXCLUDED.avatar_url,
-           email      = EXCLUDED.email
-     RETURNING id, username, email, avatar_url, created_at`,
-    [googleId, email.toLowerCase(), displayName.replace(/\s+/g, '_').slice(0, 30), avatarUrl],
+  const normEmail = email.toLowerCase().trim();
+  const RETURNING = 'RETURNING id, username, email, avatar_url, created_at';
+
+  // 1. Already linked to this Google account
+  const linked = await pool.query(
+    `UPDATE users SET avatar_url = COALESCE($2, avatar_url) WHERE google_id = $1 ${RETURNING}`,
+    [googleId, avatarUrl],
   );
-  return rows[0];
+  if (linked.rows[0]) return linked.rows[0];
+
+  // 2. An account with this email already exists (email/password signup) — link it
+  const byEmail = await pool.query(
+    `UPDATE users SET google_id = $1, avatar_url = COALESCE(avatar_url, $3)
+     WHERE email = $2 AND google_id IS NULL ${RETURNING}`,
+    [googleId, normEmail, avatarUrl],
+  );
+  if (byEmail.rows[0]) return byEmail.rows[0];
+
+  // 3. Fresh account — derive a username, retrying with a suffix on collision
+  const base = (displayName || normEmail.split('@')[0])
+    .replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 24) || 'user';
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const username = attempt === 0 ? base : `${base}_${crypto.randomBytes(2).toString('hex')}`;
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO users (google_id, email, username, avatar_url) VALUES ($1, $2, $3, $4) ${RETURNING}`,
+        [googleId, normEmail, username, avatarUrl],
+      );
+      return rows[0];
+    } catch (err) {
+      if (err.code !== '23505') throw err; // retry only on unique violations
+    }
+  }
+  throw Object.assign(new Error('Could not create account, please try again'), { status: 500 });
 }
 
 // ─── Get user by id ───────────────────────────────────────────────────────────

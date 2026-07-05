@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import AnimeCover from '../components/AnimeCover';
 import StatusBadge from '../components/StatusBadge';
@@ -28,6 +28,11 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
   const { data: chars = [] }  = useAnimeCharacters(id);
   const { data: recs  = [] }  = useRecommendations(id);
   const entry = entries.find((e) => e.animeId === Number(id));
+
+  useEffect(() => {
+    document.title = anime?.title ? `${anime.title} · Tsugi` : 'Tsugi 次 · Anime Watchlist';
+    return () => { document.title = 'Tsugi 次 · Anime Watchlist'; };
+  }, [anime?.title]);
 
   if (isLoading) return <DetailSkeleton t={t} />;
   if (isError || !anime) {
@@ -71,8 +76,9 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
 
-  // Streaming + external links
+  // Streaming + external links (plus the canonical MAL page)
   const streamLinks = [
+    ...(anime.malUrl ? [{ name: 'MyAnimeList', url: anime.malUrl }] : []),
     ...(anime.streaming || []),
     ...(anime.external  || []),
   ].filter((l) => l.name && l.url);
@@ -101,7 +107,7 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 20 }}>
-            {[['Score', `★ ${anime.rating}`], ['Episodes', anime.eps], ['Year', anime.year || '—'], ['Studio', anime.studio || '—']].map(([label, val]) => (
+            {[['Score', anime.rating != null ? `★ ${anime.rating}` : '—'], ['Episodes', anime.eps], ['Year', anime.year || '—'], ['Studio', anime.studio || '—']].map(([label, val]) => (
               <div key={label} style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 14px' }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 3, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
                 <div style={{ fontWeight: 800, fontSize: 16, color: t.text }}>{val}</div>
@@ -109,7 +115,9 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
             ))}
           </div>
 
-          <p style={{ fontSize: 14, color: t.textMuted, lineHeight: 1.75, marginBottom: 24, maxWidth: 540 }}>{anime.desc}</p>
+          <p style={{ fontSize: 14, color: t.textMuted, lineHeight: 1.75, marginBottom: 24, maxWidth: 540 }}>
+            {anime.desc || 'No synopsis available yet.'}
+          </p>
 
           {/* Streaming badges */}
           {streamLinks.length > 0 && (
@@ -309,24 +317,21 @@ function Section({ title, t, children }) {
   );
 }
 
+// Deliberately does NOT fetch full details per relation — long-running
+// franchises have dozens of related entries, and one fetch each would blow
+// straight through Jikan's rate limit. The name from the relations payload
+// is enough; the detail page is one click away.
 function RelationCard({ entry, t, navigate }) {
-  const { data: detail } = useAnimeDetail(entry.mal_id);
   return (
     <div
       onClick={() => navigate(`/anime/${entry.mal_id}`)}
-      style={{ display: 'flex', gap: 10, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', width: 220, transition: 'border-color .13s' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', maxWidth: 260, padding: '10px 14px', transition: 'border-color .13s' }}
       onMouseEnter={(e) => (e.currentTarget.style.borderColor = t.accent + '66')}
       onMouseLeave={(e) => (e.currentTarget.style.borderColor = t.border)}
     >
-      <div style={{ width: 44, flexShrink: 0, background: t.surface2 }}>
-        {detail?.image
-          ? <img src={detail.image} alt={detail.title} style={{ width: '100%', height: 62, objectFit: 'cover', display: 'block' }} />
-          : <div style={{ width: '100%', height: 62, background: t.surface2 }} />
-        }
-      </div>
-      <div style={{ padding: '8px 8px 8px 0', minWidth: 0 }}>
+      <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {detail?.title || entry.name}
+          {entry.name}
         </div>
         <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>{entry.type?.toUpperCase?.() || 'ANIME'}</div>
       </div>

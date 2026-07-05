@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import AuthModal from './components/AuthModal';
+import ThemePanel from './components/ThemePanel';
 import DiscoverPage from './pages/DiscoverPage';
 import AnimeDetailPage from './pages/AnimeDetailPage';
 import WatchlistPage from './pages/WatchlistPage';
@@ -102,6 +103,7 @@ export default function App() {
       </div>
 
       {showAuth && <AuthModal onClose={closeAuth} t={t} />}
+      <ThemePanel />
     </div>
   );
 }
