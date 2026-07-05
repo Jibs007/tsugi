@@ -6,9 +6,15 @@ import StatusBadge from '../components/StatusBadge';
 import { GENRES } from '../lib/constants';
 import { useWatchlistStore } from '../stores/watchlistStore';
 import { useThemeStore } from '../stores/themeStore';
-import { useTopAnime, useAnimeSearch } from '../hooks/useAnime';
+import { useTopAnime, useAnimeSearch, useGenres } from '../hooks/useAnime';
 
-const SORT_FILTERS = ['bypopularity', 'byrating', 'airing'];
+// Jikan /top/anime sort modes — null filter = default ranking (top rated)
+const SORT_TABS = [
+  { key: 'bypopularity', label: 'Popular' },
+  { key: null,           label: 'Top Rated' },
+  { key: 'airing',       label: 'Airing Now' },
+  { key: 'upcoming',     label: 'Upcoming' },
+];
 
 export default function DiscoverPage({ onAuthClick }) {
   const navigate = useNavigate();
@@ -18,45 +24,56 @@ export default function DiscoverPage({ onAuthClick }) {
   const { getEntry } = useWatchlistStore();
   const gridRef = useRef(null);
 
-  const urlQuery = searchParams.get('q') || '';
-  const [genre, setGenre]         = useState(GENRES[0]);
+  // The URL is the source of truth for filters, so links from the genre
+  // browser (/?genres=22) and the search bar (/?q=...) both work.
+  const urlQuery   = searchParams.get('q') || '';
+  const urlGenreId = searchParams.get('genres');
+
   const [page, setPage]           = useState(1);
   const [activeIdx, setActiveIdx] = useState(0);
   const [carouselPaused, setPaused] = useState(false);
+  const [topFilter, setTopFilter] = useState('bypopularity');
 
-  // Pick a random sort on each page load — stable for the component lifetime
-  const [topFilter] = useState(
-    () => SORT_FILTERS[Math.floor(Math.random() * SORT_FILTERS.length)],
-  );
+  // Full genre list from MAL — used to label genres picked in the browser
+  // that aren't in our quick-chip row.
+  const { data: allGenres = [] } = useGenres();
 
   // React to every navigation event (location.key is unique per navigate() call).
-  // This catches logo→same-URL clicks that urlQuery alone never detects, and also
-  // resets pagination whenever the search context changes.
+  // This catches logo→same-URL clicks and resets pagination whenever the
+  // search context changes.
   useEffect(() => {
-    const q         = searchParams.get('q') || '';
-    const hasGenres = !!searchParams.get('genres');
-    // Always reset pagination and carousel position on navigation
     setPage(1);
     setActiveIdx(0);
-    // Reset genre filter too when the URL carries no filter params at all
-    if (!q && !hasGenres) setGenre(GENRES[0]);
   }, [location.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleGenreChange = (g) => { setGenre(g); setPage(1); };
+  const setGenreParam = (id) => {
+    const params = new URLSearchParams(searchParams);
+    if (id == null) params.delete('genres');
+    else params.set('genres', String(id));
+    navigate({ pathname: '/', search: params.toString() ? `?${params}` : '' });
+  };
 
-  const isFiltering = !!(urlQuery || genre.id !== null);
+  const changeSort = (key) => { setTopFilter(key); setPage(1); setActiveIdx(0); };
+
+  const isFiltering = !!(urlQuery || urlGenreId);
 
   const { data: topData, isLoading: topLoading } = useTopAnime({
-    filter: topFilter,
+    ...(topFilter ? { filter: topFilter } : {}),
     limit: 24,
     page,
   });
 
   const { data: searchData, isLoading: searchLoading } = useAnimeSearch(
     isFiltering
-      ? { q: urlQuery || undefined, genres: genre.id != null ? String(genre.id) : undefined, limit: 24, page }
+      ? { q: urlQuery || undefined, genres: urlGenreId || undefined, limit: 24, page }
       : {},
   );
+
+  // A genre chosen in the genre browser that isn't in the quick-chip row
+  const knownChip     = GENRES.some((g) => g.id != null && String(g.id) === urlGenreId);
+  const externalGenre = urlGenreId && !knownChip
+    ? { name: allGenres.find((g) => String(g.id) === urlGenreId)?.name ?? 'Genre', id: Number(urlGenreId) }
+    : null;
 
   const activeData = isFiltering ? searchData   : topData;
   const loading    = isFiltering ? searchLoading : topLoading;
@@ -114,7 +131,9 @@ export default function DiscoverPage({ onAuthClick }) {
                     <span key={g} style={{ fontSize: 12, fontWeight: 700, color: t.accent2, background: t.accentMuted, borderRadius: 5, padding: '3px 9px' }}>{g}</span>
                   ))}
                   <StatusBadge status={featured.status} />
-                  <span style={{ fontWeight: 700, fontSize: 13, color: t.textMuted }}>★ {featured.rating}</span>
+                  {featured.rating != null && (
+                    <span style={{ fontWeight: 700, fontSize: 13, color: t.textMuted }}>★ {featured.rating}</span>
+                  )}
                 </div>
                 <button
                   onClick={() => navigate(`/anime/${featured.id}`)}
@@ -145,21 +164,38 @@ export default function DiscoverPage({ onAuthClick }) {
         )
       )}
 
+      {/* Sort tabs — only meaningful when browsing, not filtering */}
+      {!isFiltering && (
+        <div style={{ padding: '14px 40px 0', display: 'flex', gap: 7, alignItems: 'center' }}>
+          {SORT_TABS.map(({ key, label }) => {
+            const active = topFilter === key;
+            return (
+              <button key={label} onClick={() => changeSort(key)} style={{
+                flexShrink: 0, background: active ? t.accentMuted : 'transparent',
+                border: `1px solid ${active ? t.accent : t.border}`,
+                color: active ? t.accent : t.textMuted, padding: '6px 14px',
+                fontWeight: 700, fontSize: 12, cursor: 'pointer', borderRadius: 6, transition: 'all .13s',
+              }}>{label}</button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Genre filter + active query display */}
       <div ref={gridRef} style={{ padding: '14px 40px', display: 'flex', gap: 7, overflowX: 'auto', borderBottom: `1px solid ${t.border}`, alignItems: 'center' }}>
         {urlQuery && (
           <div style={{ flexShrink: 0, fontSize: 13, color: t.textMuted, marginRight: 8 }}>
             Results for <strong style={{ color: t.text }}>"{urlQuery}"</strong>
             <button
-              onClick={() => navigate('/')}
+              onClick={() => navigate(urlGenreId ? `/?genres=${urlGenreId}` : '/')}
               style={{ marginLeft: 8, background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 14, verticalAlign: 'middle' }}
             >×</button>
           </div>
         )}
         {GENRES.map((g) => {
-          const active = g.id === genre.id;
+          const active = g.id == null ? !urlGenreId : String(g.id) === urlGenreId;
           return (
-            <button key={g.name} onClick={() => handleGenreChange(g)} style={{
+            <button key={g.name} onClick={() => setGenreParam(g.id)} style={{
               flexShrink: 0, background: active ? t.accent : 'transparent',
               border: `1px solid ${active ? t.accent : t.border}`,
               color: active ? '#fff' : t.textMuted, padding: '6px 14px',
@@ -167,6 +203,13 @@ export default function DiscoverPage({ onAuthClick }) {
             }}>{g.name}</button>
           );
         })}
+        {externalGenre && (
+          <button onClick={() => setGenreParam(null)} title="Click to clear" style={{
+            flexShrink: 0, background: t.accent, border: `1px solid ${t.accent}`,
+            color: '#fff', padding: '6px 14px',
+            fontWeight: 600, fontSize: 12, cursor: 'pointer', borderRadius: 6, transition: 'all .13s',
+          }}>{externalGenre.name} ×</button>
+        )}
         <button
           onClick={() => navigate('/genres')}
           style={{
@@ -188,14 +231,18 @@ export default function DiscoverPage({ onAuthClick }) {
         ) : anime.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
             <div style={{ fontSize: 15, color: t.textMuted, marginBottom: 12 }}>
-              No results{urlQuery ? ` for "${urlQuery}"` : ''}.
+              {isFiltering
+                ? `No results${urlQuery ? ` for "${urlQuery}"` : ''}.`
+                : "Couldn't load anime right now — check your connection and try again."}
             </div>
-            <button
-              onClick={() => { setGenre(GENRES[0]); navigate('/'); }}
-              style={{ background: 'transparent', border: `1px solid ${t.border}`, color: t.textMuted, borderRadius: 7, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
-            >
-              Clear filters
-            </button>
+            {isFiltering && (
+              <button
+                onClick={() => navigate('/')}
+                style={{ background: 'transparent', border: `1px solid ${t.border}`, color: t.textMuted, borderRadius: 7, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+              >
+                Clear filters
+              </button>
+            )}
           </div>
         ) : (
           <>

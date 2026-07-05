@@ -26,24 +26,31 @@ export async function upsertEntry(userId, animeId, fields) {
     throw Object.assign(new Error(`status must be one of: ${VALID.join(', ')}`), { status: 400 });
   }
 
-  if (rating != null && (rating < 1 || rating > 10)) {
-    throw Object.assign(new Error('rating must be between 1 and 10'), { status: 400 });
+  if (rating != null && (!Number.isInteger(rating) || rating < 1 || rating > 10)) {
+    throw Object.assign(new Error('rating must be an integer between 1 and 10'), { status: 400 });
   }
 
+  if (progress != null && (!Number.isInteger(progress) || progress < 0)) {
+    throw Object.assign(new Error('progress must be a non-negative integer'), { status: 400 });
+  }
+
+  // Partial-update semantics: fields the caller didn't send stay untouched.
+  // The raw params (not EXCLUDED.*) are used in DO UPDATE — EXCLUDED reflects
+  // the VALUES row, where NULLs have already been defaulted for the insert.
   const { rows } = await pool.query(
     `INSERT INTO watchlist_entries
        (user_id, anime_id, status, progress, rating, notes, started_at, finished_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     VALUES ($1, $2, $3, COALESCE($4, 0), $5, $6, $7, $8)
      ON CONFLICT (user_id, anime_id) DO UPDATE SET
-       status      = EXCLUDED.status,
-       progress    = COALESCE(EXCLUDED.progress,   watchlist_entries.progress),
-       rating      = COALESCE(EXCLUDED.rating,     watchlist_entries.rating),
-       notes       = COALESCE(EXCLUDED.notes,      watchlist_entries.notes),
-       started_at  = COALESCE(EXCLUDED.started_at, watchlist_entries.started_at),
-       finished_at = COALESCE(EXCLUDED.finished_at,watchlist_entries.finished_at),
+       status      = $3,
+       progress    = COALESCE($4, watchlist_entries.progress),
+       rating      = COALESCE($5, watchlist_entries.rating),
+       notes       = COALESCE($6, watchlist_entries.notes),
+       started_at  = COALESCE($7, watchlist_entries.started_at),
+       finished_at = COALESCE($8, watchlist_entries.finished_at),
        updated_at  = NOW()
      RETURNING *`,
-    [userId, animeId, status, progress ?? 0, rating ?? null, notes ?? null, started_at ?? null, finished_at ?? null],
+    [userId, animeId, status, progress ?? null, rating ?? null, notes ?? null, started_at ?? null, finished_at ?? null],
   );
 
   return rows[0];

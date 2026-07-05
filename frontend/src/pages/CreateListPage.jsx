@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import AnimeCover from '../components/AnimeCover';
 import { useWatchlistStore } from '../stores/watchlistStore';
@@ -12,7 +12,7 @@ export default function CreateListPage() {
   const { myLists, createList, updateList } = useWatchlistStore();
 
   const editList = id ? myLists.find((l) => l.id === id) : null;
-  const isEdit = !!editList;
+  const isEdit = !!id;
 
   const [name, setName]       = useState(editList?.name || '');
   const [desc, setDesc]       = useState(editList?.desc || '');
@@ -20,6 +20,20 @@ export default function CreateListPage() {
   const [animeIds, setAnimeIds] = useState(editList?.animeIds || []);
   const [search, setSearch]   = useState('');
   const [saved, setSaved]     = useState(false);
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState(null);
+
+  // On a direct reload of /lists/:id/edit, myLists loads asynchronously —
+  // populate the form once the list arrives instead of silently treating
+  // the edit as a brand-new list.
+  useEffect(() => {
+    if (editList) {
+      setName(editList.name);
+      setDesc(editList.desc);
+      setIsPublic(editList.isPublic);
+      setAnimeIds(editList.animeIds);
+    }
+  }, [editList?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: searchData, isLoading: searching } = useAnimeSearch(
     search.trim() ? { q: search.trim(), limit: 8 } : {},
@@ -33,12 +47,28 @@ export default function CreateListPage() {
   };
 
   const save = async () => {
-    if (!name.trim()) return;
-    if (isEdit) await updateList(editList.id, { name, desc, isPublic, animeIds });
-    else await createList({ name, desc, isPublic, animeIds });
-    setSaved(true);
-    setTimeout(() => { setSaved(false); navigate('/lists'); }, 1200);
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      if (isEdit) await updateList(id, { name, desc, isPublic, animeIds });
+      else await createList({ name, desc, isPublic, animeIds });
+      setSaved(true);
+      setTimeout(() => { setSaved(false); navigate('/lists'); }, 1200);
+    } catch (err) {
+      setError(err?.error || 'Could not save the list — please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (isEdit && !editList) {
+    return (
+      <div style={{ padding: '36px 40px', color: t.textMuted, fontSize: 14 }} className="animate-fade-in">
+        Loading list…
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: '36px 40px', maxWidth: 680 }} className="animate-fade-in">
@@ -122,12 +152,23 @@ export default function CreateListPage() {
         )}
 
         {/* Actions */}
+        {error && (
+          <div style={{ background: '#f8717122', border: '1px solid #f87171', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#f87171' }}>
+            {error}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
           <button
             onClick={save}
-            style={{ flex: 1, padding: '13px', background: saved ? '#22c55e' : t.accent, border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer', transition: 'background .2s' }}
+            disabled={!name.trim() || saving}
+            style={{
+              flex: 1, padding: '13px', background: saved ? '#22c55e' : t.accent, border: 'none', borderRadius: 8,
+              color: '#fff', fontWeight: 700, fontSize: 15,
+              cursor: !name.trim() || saving ? 'not-allowed' : 'pointer',
+              opacity: !name.trim() || saving ? 0.6 : 1, transition: 'background .2s, opacity .15s',
+            }}
           >
-            {saved ? '✓ Saved!' : isEdit ? 'Save Changes' : 'Create List'}
+            {saved ? '✓ Saved!' : saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create List'}
           </button>
         </div>
       </div>

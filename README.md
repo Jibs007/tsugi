@@ -105,17 +105,23 @@ The Docker Compose `postgres` service mounts `schema.sql` as an init script, so 
 | `POST` | `/api/auth/refresh` | Rotate refresh token |
 | `POST` | `/api/auth/logout` | Clear session |
 | `GET`  | `/api/auth/google` | Start Google OAuth flow |
-| `GET`  | `/api/anime/top` | Top anime (by popularity) |
-| `GET`  | `/api/anime/search?q=&genres=&status=` | Search anime |
-| `GET`  | `/api/anime/:id` | Anime detail |
+| `GET`  | `/api/anime/top?filter=` | Top anime — no filter = top rated; `bypopularity`, `airing`, `upcoming`, `favorite` |
+| `GET`  | `/api/anime/search?q=&genres=&status=` | Search anime (MAL relevance order when `q` is given) |
+| `GET`  | `/api/anime/genres` | All MAL genres/themes/demographics |
+| `GET`  | `/api/anime/seasonal/now` | Currently airing season |
+| `GET`  | `/api/anime/:id` | Anime detail (trailer, relations, streaming links) |
+| `GET`  | `/api/anime/:id/characters` | Main characters + Japanese VAs |
 | `GET`  | `/api/anime/:id/recommendations` | Recommendations |
 | `GET`  | `/api/watchlist` | Get current user's watchlist |
-| `PUT`  | `/api/watchlist/:animeId` | Add / update entry |
+| `PUT`  | `/api/watchlist/:animeId` | Add / update entry (partial: `status`, `progress`, `rating`, …) |
 | `DELETE` | `/api/watchlist/:animeId` | Remove entry |
-| `GET`  | `/api/lists` | Get all lists |
+| `GET`  | `/api/lists` | Get your lists |
+| `GET`  | `/api/lists/public` | Browse public lists (includes `is_following`) |
 | `POST` | `/api/lists` | Create a list |
-| `PUT`  | `/api/lists/:id` | Update a list |
-| `DELETE` | `/api/lists/:id` | Delete a list |
+| `PUT`  | `/api/lists/:id` | Update a list (owner only) |
+| `DELETE` | `/api/lists/:id` | Delete a list (owner only) |
+| `POST` | `/api/lists/:id/anime` | Add anime to a list (owner only) |
+| `POST` / `DELETE` | `/api/lists/:id/follow` | Follow / unfollow a public list |
 
 ---
 
@@ -154,15 +160,16 @@ Anime data flows:
 Browser → /api/anime/* (Express) → Redis cache → Jikan API (MAL)
 ```
 
-- Cache TTLs: detail 6 h · search 30 min · top 1 h · seasonal 30 min
-- Jikan rate limit (3 req/s) is handled by a token-bucket queue in `animeService.js`
-- The frontend uses TanStack Query with `MOCK_ANIME` as `placeholderData`, so the UI is never blank — real data replaces mock data once the first API response arrives
+- Cache TTLs: detail 24 h · search 1 h · top 3 h · seasonal 30 min · genres 24 h
+- Jikan rate limit (3 req/s) is handled by a token-bucket queue in `animeService.js`, with capped backoff on 429s
+- Cache keys are versioned (`anime:v2:*`) — bump the version when the normalised shape changes
+- The frontend uses TanStack Query; skeleton loaders cover the first fetch
 
 ---
 
 ## Themes
 
-Three built-in themes (toggle in the sidebar):
+Three built-in themes (toggle via the ◐ button, bottom-right):
 
 | Name | Vibe |
 |------|------|

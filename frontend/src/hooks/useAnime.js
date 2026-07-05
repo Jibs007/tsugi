@@ -22,13 +22,22 @@ export function normaliseAnime(a) {
     color:   genColor(a.id ?? a.mal_id),
     genres:  (a.genres ?? []).map((g) => (typeof g === 'string' ? g : g.name)),
     status:  mapStatus(a.status ?? a.airing),
-    rating:  a.score   ?? 0,
+    rating:  a.score ?? null,          // null = not yet rated (don't show "★ 0")
+    scoredBy: a.scoredBy ?? null,
+    rank:    a.rank ?? null,
     eps:     a.episodes ?? '?',
-    year:    a.year    ?? new Date().getFullYear(),
+    year:    a.year ?? null,           // null = unknown, never fabricate a year
     type:    a.type    ?? null,
     studio:  (a.studios ?? [])[0] ?? '',
     desc:    a.synopsis ?? '',
     image:   a.image   ?? a.imageSm ?? null,
+    malUrl:  a.malUrl  ?? null,
+    // full-detail extras (present only on /anime/:id responses)
+    trailer:   a.trailer   ?? null,
+    relations: a.relations ?? [],
+    streaming: a.streaming ?? [],
+    external:  a.external  ?? [],
+    themes:    a.themes    ?? [],
   };
 }
 

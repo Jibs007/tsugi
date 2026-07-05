@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useAuthStore } from '../stores/authStore';
-import { useUIStore } from '../stores/uiStore';
 
 export default function AuthModal({ onClose, t }) {
   const [tab, setTab]           = useState('login');
@@ -9,9 +8,11 @@ export default function AuthModal({ onClose, t }) {
   const [pass, setPass]         = useState('');
 
   const { login, signup, loading, error, clearError } = useAuthStore();
-  const { authApi } = { authApi: { googleLogin: () => { window.location.href = '/api/auth/google'; } } };
+
+  const canSubmit = email.trim() && pass && (tab === 'login' || username.trim());
 
   const handleSubmit = async () => {
+    if (!canSubmit || loading) return;
     clearError();
     try {
       if (tab === 'login') {
@@ -94,12 +95,15 @@ export default function AuthModal({ onClose, t }) {
             <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="••••••••" style={inputStyle}
               onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
               onFocus={(e) => (e.target.style.borderColor = t.accent)} onBlur={(e) => (e.target.style.borderColor = t.border)} />
+            {tab === 'signup' && (
+              <div style={{ fontSize: 11, color: t.textMuted, marginTop: 5 }}>At least 8 characters</div>
+            )}
           </div>
 
-          <button onClick={handleSubmit} disabled={loading} style={{
+          <button onClick={handleSubmit} disabled={loading || !canSubmit} style={{
             marginTop: 4, padding: '13px', background: t.accent, border: 'none', borderRadius: 8,
-            color: '#fff', fontWeight: 700, fontSize: 15, cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.7 : 1, transition: 'opacity .15s',
+            color: '#fff', fontWeight: 700, fontSize: 15, cursor: loading || !canSubmit ? 'not-allowed' : 'pointer',
+            opacity: loading || !canSubmit ? 0.7 : 1, transition: 'opacity .15s',
           }}>
             {loading ? '…' : tab === 'login' ? 'Log In' : 'Create Account'}
           </button>

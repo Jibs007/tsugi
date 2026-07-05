@@ -37,16 +37,21 @@ export const useWatchlistStore = create((set, get) => ({
   },
 
   // ── Watchlist CRUD (optimistic + backend sync) ────────────────────────────
-  upsertEntry: async (animeId, status) => {
-    set((s) => {
-      const exists = s.entries.find((e) => e.animeId === animeId);
-      return {
-        entries: exists
-          ? s.entries.map((e) => (e.animeId === animeId ? { ...e, status } : e))
-          : [...s.entries, { animeId, status, progress: 0, rating: null }],
-      };
-    });
-    try { await watchlistApi.upsert(animeId, { status }); } catch { /* non-critical */ }
+  // `fields` is either a status string ('watching') or a partial patch
+  // ({ progress: 5 }, { rating: 8 }, { status, progress }, …).
+  upsertEntry: async (animeId, fields) => {
+    const patch = typeof fields === 'string' ? { status: fields } : { ...fields };
+    const existing = get().entries.find((e) => e.animeId === animeId);
+    // Backend requires a status on every upsert — reuse the current one for
+    // progress/rating-only updates.
+    const status = patch.status ?? existing?.status ?? 'watching';
+
+    set((s) => ({
+      entries: existing
+        ? s.entries.map((e) => (e.animeId === animeId ? { ...e, ...patch, status } : e))
+        : [...s.entries, { animeId, progress: 0, rating: null, ...patch, status }],
+    }));
+    try { await watchlistApi.upsert(animeId, { ...patch, status }); } catch { /* non-critical */ }
   },
 
   removeEntry: async (animeId) => {
@@ -59,11 +64,16 @@ export const useWatchlistStore = create((set, get) => ({
   // ── Lists CRUD ────────────────────────────────────────────────────────────
   createList: async (data) => {
     const row = await listsApi.create({ name: data.name, desc: data.desc, isPublic: data.isPublic });
+    // Persist any anime picked before the list existed
+    const animeIds = data.animeIds ?? [];
+    for (const animeId of animeIds) {
+      try { await listsApi.addAnime(row.id, animeId); } catch { /* keep going */ }
+    }
     const list = {
       id: row.id, name: row.name,
       desc: row.description ?? '',
       isPublic: row.is_public,
-      animeIds: [],
+      animeIds,
       followers: 0,
     };
     set((s) => ({ myLists: [...s.myLists, list] }));
@@ -71,9 +81,24 @@ export const useWatchlistStore = create((set, get) => ({
   },
 
   updateList: async (id, updates) => {
-    try {
-      await listsApi.update(id, { name: updates.name, desc: updates.desc, isPublic: updates.isPublic });
-    } catch { /* non-critical */ }
+    const current = get().myLists.find((l) => l.id === id);
+    await listsApi.update(id, { name: updates.name, desc: updates.desc, isPublic: updates.isPublic });
+
+    // Sync anime membership changes (diff against what we had)
+    if (updates.animeIds && current) {
+      const before = new Set(current.animeIds);
+      const after  = new Set(updates.animeIds);
+      for (const animeId of updates.animeIds) {
+        if (!before.has(animeId)) {
+          try { await listsApi.addAnime(id, animeId); } catch { /* keep going */ }
+        }
+      }
+      for (const animeId of current.animeIds) {
+        if (!after.has(animeId)) {
+          try { await listsApi.rmAnime(id, animeId); } catch { /* keep going */ }
+        }
+      }
+    }
     set((s) => ({ myLists: s.myLists.map((l) => (l.id === id ? { ...l, ...updates } : l)) }));
   },
 

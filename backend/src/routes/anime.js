@@ -45,9 +45,18 @@ router.get('/seasonal/now', async (req, res, next) => {
  * GET /api/anime/seasonal/:year/:season
  * e.g. /seasonal/2024/winter
  */
+const SEASONS = ['winter', 'spring', 'summer', 'fall'];
+
 router.get('/seasonal/:year/:season', async (req, res, next) => {
   try {
-    const { year, season } = req.params;
+    const year   = parseInt(req.params.year, 10);
+    const season = String(req.params.season).toLowerCase();
+    if (!Number.isFinite(year) || year < 1917 || year > new Date().getFullYear() + 2) {
+      return res.status(400).json({ error: 'Invalid year' });
+    }
+    if (!SEASONS.includes(season)) {
+      return res.status(400).json({ error: `season must be one of: ${SEASONS.join(', ')}` });
+    }
     res.json(await anime.getSeason(year, season, req.query));
   } catch (err) {
     next(err);
