@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import AuthModal from './components/AuthModal';
-import ThemePanel from './components/ThemePanel';
+import ScrollToTop from './components/ScrollToTop';
 import DiscoverPage from './pages/DiscoverPage';
 import AnimeDetailPage from './pages/AnimeDetailPage';
 import WatchlistPage from './pages/WatchlistPage';
@@ -72,6 +72,7 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: t.bg, color: t.text }}>
+      <ScrollToTop />
       <Sidebar user={user} onAuthClick={openAuth} t={t} />
 
       {/* Right column: topbar + scrollable content */}
@@ -105,7 +106,6 @@ export default function App() {
       </div>
 
       {showAuth && <AuthModal onClose={closeAuth} t={t} />}
-      <ThemePanel />
     </div>
   );
 }

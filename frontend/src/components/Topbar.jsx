@@ -36,26 +36,29 @@ export default function Topbar() {
     setOpen(false);
   }, [searchParams]);
 
-  // Debounced suggestion fetch
+  // Debounced suggestion fetch (400ms) — typing a new query aborts the
+  // in-flight request so stale responses never race the fresh one.
   useEffect(() => {
     const q = value.trim();
     if (q.length < 2) { setSuggestions([]); setOpen(false); return; }
 
+    const controller = new AbortController();
     const id = setTimeout(async () => {
       setFetching(true);
       try {
-        const data = await animeApi.search({ q, limit: 12 });
+        const data = await animeApi.search({ q, limit: 12 }, controller.signal);
         const items = (data.items || []).map(normaliseAnime);
         // Sort by title match, then take top 8
         setSuggestions(sortSuggestions(items, q).slice(0, 8));
         setOpen(true);
-      } catch {
-        setSuggestions([]);
+      } catch (err) {
+        // An aborted request just means the user kept typing — not a failure
+        if (err?.code !== 'ERR_CANCELED' && err?.name !== 'CanceledError') setSuggestions([]);
       }
       setFetching(false);
-    }, 300);
+    }, 400);
 
-    return () => clearTimeout(id);
+    return () => { clearTimeout(id); controller.abort(); };
   }, [value]);
 
   // Close on outside click

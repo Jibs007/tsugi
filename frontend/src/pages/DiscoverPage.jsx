@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import AnimeCard from '../components/AnimeCard';
 import AnimeCover from '../components/AnimeCover';
 import StatusBadge from '../components/StatusBadge';
 import { GENRES } from '../lib/constants';
 import { useWatchlistStore } from '../stores/watchlistStore';
 import { useThemeStore } from '../stores/themeStore';
-import { useTopAnime, useAnimeSearch, useGenres } from '../hooks/useAnime';
+import { useTopAnime, useAnimeSearch, useGenres, topQueryOptions, searchQueryOptions } from '../hooks/useAnime';
+import { useAutoRetry } from '../hooks/useAutoRetry';
 
 // Jikan /top/anime sort modes — null filter = default ranking (top rated)
 const SORT_TABS = [
@@ -82,6 +84,23 @@ export default function DiscoverPage({ onAuthClick }) {
   const anime      = activeData?.items      ?? [];
   const pagination = activeData?.pagination ?? null;
   const hasNext    = pagination?.has_next_page ?? (anime.length === 24);
+
+  // On failure, retry automatically (5s apart, 3 times) before requiring a click
+  const { retrying, retryNow } = useAutoRetry(loadError, retry);
+
+  // Prefetch the next page 2s after the current one renders — spread out over
+  // time via the backend queue, so clicking Next is instant.
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (loading || loadError || !hasNext || anime.length === 0) return;
+    const nextParams = isFiltering
+      ? { q: urlQuery || undefined, genres: urlGenreId || undefined, limit: 24, page: page + 1 }
+      : { ...(topFilter ? { filter: topFilter } : {}), limit: 24, page: page + 1 };
+    const id = setTimeout(() => {
+      queryClient.prefetchQuery(isFiltering ? searchQueryOptions(nextParams) : topQueryOptions(nextParams));
+    }, 2000);
+    return () => clearTimeout(id);
+  }, [activeData, loading, loadError, hasNext, isFiltering, urlQuery, urlGenreId, topFilter, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Carousel data — a fresh random 5 of the top list per visit, so the
   // spotlight isn't the same anime every time you open the app.
@@ -247,13 +266,18 @@ export default function DiscoverPage({ onAuthClick }) {
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
             <div style={{ fontSize: 15, color: t.textMuted, marginBottom: 14 }}>
               {loadError
-                ? "Couldn't load anime right now — this is usually a temporary MyAnimeList rate limit."
+                ? (retrying
+                    ? 'Having trouble reaching MyAnimeList — retrying automatically…'
+                    : "Couldn't load anime after several attempts.")
                 : `No results${urlQuery ? ` for "${urlQuery}"` : ''}.`}
             </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              {loadError && (
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', alignItems: 'center' }}>
+              {loadError && retrying && (
+                <span className="skeleton" style={{ width: 10, height: 10, borderRadius: '50%', background: t.accent, display: 'inline-block' }} />
+              )}
+              {loadError && !retrying && (
                 <button
-                  onClick={() => retry()}
+                  onClick={retryNow}
                   style={{ background: t.accent, border: 'none', color: '#fff', borderRadius: 7, padding: '8px 18px', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}
                 >
                   Retry

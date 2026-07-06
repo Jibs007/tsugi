@@ -6,6 +6,7 @@ import { STATUS_LABELS, STATUS_COLORS } from '../lib/constants';
 import { useWatchlistStore } from '../stores/watchlistStore';
 import { useThemeStore } from '../stores/themeStore';
 import { useAnimeDetail, useAnimeCharacters, useRecommendations } from '../hooks/useAnime';
+import { useAutoRetry } from '../hooks/useAutoRetry';
 
 // Relation type display order (MAL convention)
 const RELATION_ORDER = ['Sequel', 'Prequel', 'Alternative Version', 'Alternative Setting', 'Side Story', 'Spin-off', 'Full Story', 'Parent Story', 'Summary', 'Adaptation', 'Character', 'Other'];
@@ -37,24 +38,34 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
     return () => { document.title = 'Tsugi 次 · Anime Watchlist'; };
   }, [anime?.title]);
 
-  // New page = scroll back to top (the scroll container persists across routes)
-  useEffect(() => {
-    document.getElementById('main-scroll')?.scrollTo({ top: 0 });
-  }, [id]);
+  // Auto-retry failed loads (5s apart, 3 times) before asking for a click
+  const { retrying, retryNow } = useAutoRetry(isError, refetch);
 
   if (isLoading) return <DetailSkeleton t={t} />;
   if (isError || !anime) {
     return (
       <div style={{ padding: 60, textAlign: 'center', color: t.textMuted }}>
-        <div style={{ marginBottom: 14 }}>Couldn't load this anime.</div>
-        <button
-          onClick={() => refetch()}
-          style={{ background: t.accent, border: 'none', borderRadius: 7, color: '#fff', fontWeight: 700, fontSize: 13, padding: '9px 18px', cursor: 'pointer', marginRight: 10 }}
-        >Retry</button>
-        <button
-          onClick={() => navigate('/')}
-          style={{ background: 'transparent', border: `1px solid ${t.border}`, borderRadius: 7, color: t.textMuted, fontWeight: 600, fontSize: 13, padding: '9px 18px', cursor: 'pointer' }}
-        >Go home</button>
+        <div style={{ marginBottom: 14 }}>
+          {isError && retrying
+            ? 'Having trouble reaching MyAnimeList — retrying automatically…'
+            : "Couldn't load this anime."}
+        </div>
+        {isError && retrying ? (
+          <span className="skeleton" style={{ width: 10, height: 10, borderRadius: '50%', background: t.accent, display: 'inline-block' }} />
+        ) : (
+          <>
+            {isError && (
+              <button
+                onClick={retryNow}
+                style={{ background: t.accent, border: 'none', borderRadius: 7, color: '#fff', fontWeight: 700, fontSize: 13, padding: '9px 18px', cursor: 'pointer', marginRight: 10 }}
+              >Retry</button>
+            )}
+            <button
+              onClick={() => navigate('/')}
+              style={{ background: 'transparent', border: `1px solid ${t.border}`, borderRadius: 7, color: t.textMuted, fontWeight: 600, fontSize: 13, padding: '9px 18px', cursor: 'pointer' }}
+            >Go home</button>
+          </>
+        )}
       </div>
     );
   }

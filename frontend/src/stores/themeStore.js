@@ -1,30 +1,24 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { THEMES } from '../lib/constants';
+import { THEME } from '../lib/constants';
 
-// Persist only the theme *name* — palettes live in code, so palette tweaks
-// apply on next load instead of being frozen inside localStorage.
+// Dusk is the only theme (hardcoded). Only the Grid/List card style is a
+// user preference, and it's the only thing persisted.
 export const useThemeStore = create(
   persist(
     (set) => ({
-      themeName: 'dusk',
-      theme: THEMES.dusk,
+      theme: THEME,
       cardStyle: 'grid',
-      setTheme: (name) => set({ themeName: THEMES[name] ? name : 'dusk', theme: THEMES[name] ?? THEMES.dusk }),
       setCardStyle: (style) => set({ cardStyle: style }),
     }),
     {
       name: 'tsugi-theme',
-      partialize: (s) => ({ themeName: s.themeName, cardStyle: s.cardStyle }),
-      merge: (persisted, current) => {
-        const themeName = THEMES[persisted?.themeName] ? persisted.themeName : 'dusk';
-        return {
-          ...current,
-          cardStyle: persisted?.cardStyle === 'list' ? 'list' : 'grid',
-          themeName,
-          theme: THEMES[themeName],
-        };
-      },
+      partialize: (s) => ({ cardStyle: s.cardStyle }),
+      merge: (persisted, current) => ({
+        ...current,
+        cardStyle: persisted?.cardStyle === 'list' ? 'list' : 'grid',
+        theme: THEME,
+      }),
     },
   ),
 );
