@@ -35,8 +35,15 @@ export default function CreateListPage() {
     }
   }, [editList?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Debounce so we don't fire a search per keystroke
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => clearTimeout(id);
+  }, [search]);
+
   const { data: searchData, isLoading: searching } = useAnimeSearch(
-    search.trim() ? { q: search.trim(), limit: 8 } : {},
+    debouncedSearch ? { q: debouncedSearch, limit: 8 } : {},
   );
   const searchResults = searchData?.items ?? [];
 

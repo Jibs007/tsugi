@@ -1,27 +1,60 @@
 /**
  * Jikan v4 proxy service.
  *
- * Rate limits: 3 req/s, 60 req/min.
- * Strategy: a simple token-bucket queue throttles outbound requests so we
- * never burst past 3/s. Redis caches every response; most endpoints use a
- * 6-hour TTL. Seasonal/currently-airing data uses 30 min.
+ * Jikan's limits are 3 req/s and 60 req/min. This proxy is built so a rate
+ * limit error (or any transient upstream failure) almost never reaches the
+ * frontend:
+ *
+ *   1. GLOBAL QUEUE  — every outgoing request passes through one queue that
+ *      enforces 2 req/s and 55 req/min (a safety margin under the real
+ *      limits). Concurrent user requests wait in line instead of bursting.
+ *   2. RETRIES       — 429s and 5xx/network errors retry up to 3 times with
+ *      1s / 2s / 4s backoff, re-entering the queue each time.
+ *   3. STALE FALLBACK — every response is also cached for 7 days (see
+ *      redis.js withCache); if retries are exhausted, the stale copy is
+ *      served. Only never-before-fetched data can error.
+ *   4. DEDUPLICATION — concurrent identical requests share one upstream call
+ *      (in-flight map inside withCache).
  */
 import axios from 'axios';
 import redis, { withCache } from '../db/redis.js';
 
-const BASE = 'https://api.jikan.moe/v4';
+// Overridable so tests can point at a mock Jikan server.
+const BASE = process.env.JIKAN_BASE_URL || 'https://api.jikan.moe/v4';
 
-// ─── Token-bucket throttle (3 req/s) ─────────────────────────────────────────
+// ─── Global request queue: max 2 req/s AND 55 req/min ────────────────────────
+
+const RATE_PER_SEC = 2;
+const RATE_PER_MIN = 55;
 
 const queue = [];
-let tokens = 3;
-let lastRefill = Date.now();
+let sentTimes = []; // dispatch timestamps within the last 60s
+let draining = false;
 
-function refill() {
-  const now = Date.now();
-  const elapsed = (now - lastRefill) / 1000;
-  tokens = Math.min(3, tokens + elapsed * 3);
-  lastRefill = now;
+function canSend(now) {
+  sentTimes = sentTimes.filter((ts) => now - ts < 60_000);
+  if (sentTimes.length >= RATE_PER_MIN) return false;
+  const lastSecond = sentTimes.filter((ts) => now - ts < 1000).length;
+  return lastSecond < RATE_PER_SEC;
+}
+
+function drain() {
+  if (draining) return;
+  draining = true;
+  const step = () => {
+    const now = Date.now();
+    while (queue.length && canSend(now)) {
+      sentTimes.push(now);
+      const { fn, resolve, reject } = queue.shift();
+      fn().then(resolve, reject);
+    }
+    if (queue.length) {
+      setTimeout(step, 150); // check again shortly for the next free slot
+    } else {
+      draining = false;
+    }
+  };
+  step();
 }
 
 function enqueue(fn) {
@@ -31,44 +64,41 @@ function enqueue(fn) {
   });
 }
 
-function drain() {
-  refill();
-  while (queue.length && tokens >= 1) {
-    tokens -= 1;
-    const { fn, resolve, reject } = queue.shift();
-    fn().then(resolve).catch(reject);
-  }
-  if (queue.length) {
-    // Schedule next drain when a token becomes available (~334 ms)
-    setTimeout(drain, Math.ceil((1 - tokens) * 334));
-  }
-}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// ─── Raw Jikan fetch (goes through the queue) ─────────────────────────────────
+// ─── Raw Jikan fetch: queue + retry with exponential backoff ──────────────────
 
-async function jikan(path, params = {}, attempt = 0) {
-  return enqueue(async () => {
+const RETRY_DELAYS = [1000, 2000, 4000];
+
+async function jikan(path, params = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+    if (attempt > 0) await sleep(RETRY_DELAYS[attempt - 1]);
     try {
-      const { data } = await axios.get(`${BASE}${path}`, {
-        params,
-        timeout: 10_000,
-        headers: { 'Accept-Encoding': 'gzip' },
+      return await enqueue(async () => {
+        const { data } = await axios.get(`${BASE}${path}`, {
+          params,
+          timeout: 10_000,
+          headers: { 'Accept-Encoding': 'gzip' },
+        });
+        return data;
       });
-      return data;
     } catch (err) {
       const status = err.response?.status;
-      if (status === 429 && attempt < 3) {
-        // Back off with increasing delay and re-queue (max 3 retries)
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-        return jikan(path, params, attempt + 1);
+      if (status === 404) {
+        throw Object.assign(new Error('Not found on MyAnimeList'), { status: 404 });
       }
-      // Propagate a meaningful status instead of a generic 500
-      throw Object.assign(
-        new Error(status === 404 ? 'Not found on MyAnimeList' : `Upstream anime API error (${status || err.code || 'network'})`),
-        { status: status === 404 ? 404 : 502 },
-      );
+      lastErr = err;
+      // Retry only transient failures: 429, 5xx, or network/timeout errors
+      const transient = status === 429 || status >= 500 || !status;
+      if (!transient) break;
     }
-  });
+  }
+  const status = lastErr?.response?.status;
+  throw Object.assign(
+    new Error(`Upstream anime API error (${status || lastErr?.code || 'network'})`),
+    { status: 502 },
+  );
 }
 
 // ─── Response normaliser ──────────────────────────────────────────────────────
@@ -130,11 +160,12 @@ function normalisePage(data) {
 // ─── TTLs ─────────────────────────────────────────────────────────────────────
 
 const TTL = {
-  detail:   24 * 60 * 60,  // 24 h
-  search:    1 * 60 * 60,  // 1 h
-  top:       3 * 60 * 60,  // 3 h
-  seasonal: 30 * 60,       // 30 m — airing status updates frequently
-  genres:   24 * 60 * 60,  // 24 h — genre list is very stable
+  detail:   24 * 60 * 60,      // 24 h — detail, characters, recommendations
+  search:    2 * 60 * 60,      // 2 h  — text search results
+  browse:    6 * 60 * 60,      // 6 h  — genre browse (filter-only searches)
+  top:       6 * 60 * 60,      // 6 h
+  seasonal:  6 * 60 * 60,      // 6 h
+  genres:    7 * 24 * 60 * 60, // 7 d  — the genre list itself never changes
 };
 
 // ─── Title-match re-ranker ────────────────────────────────────────────────────
@@ -201,7 +232,9 @@ export async function search(opts = {}) {
   Object.keys(params).forEach((k) => params[k] === undefined && delete params[k]);
 
   const cacheKey = `anime:${V}:search:${JSON.stringify(params)}`;
-  return withCache(cacheKey, TTL.search, async () => {
+  // Filter-only browsing (genre pages) is far more cacheable than text search
+  const ttl = opts.q ? TTL.search : TTL.browse;
+  return withCache(cacheKey, ttl, async () => {
     const data = await jikan('/anime', params);
     const result = normalisePage(data);
     result.items = sortByTitleMatch(result.items, opts.q);
@@ -298,7 +331,7 @@ export async function getCharacters(animeId) {
 /** Invalidate a cached entry — call when user reports stale data */
 export async function bustCache(animeId) {
   const keys = [`anime:${V}:detail:${animeId}`, `anime:${V}:recs:${animeId}`, `anime:${V}:chars:${animeId}`];
-  await Promise.allSettled(keys.map((k) => redis.del(k)));
+  await Promise.allSettled(keys.flatMap((k) => [redis.del(k), redis.del(`stale:${k}`)]));
 }
 
 /**

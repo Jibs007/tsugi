@@ -85,11 +85,11 @@ export const animeApi = {
   /** GET /api/anime/:id — full detail with relations, streaming links */
   getById: (id) => api.get(`/anime/${id}`),
 
-  /** GET /api/anime/search?q=&genres=&status=&type=&order_by=&sort=&page=&min_score= */
-  search: (params) => api.get('/anime/search', { params }),
+  /** GET /api/anime/search — pass an AbortSignal to cancel superseded searches */
+  search: (params, signal) => api.get('/anime/search', { params, signal }),
 
   /** GET /api/anime/top?filter=bypopularity|airing|upcoming|favorite&type=tv&page= */
-  top: (params) => api.get('/anime/top', { params }),
+  top: (params, signal) => api.get('/anime/top', { params, signal }),
 
   /** GET /api/anime/seasonal/now */
   seasonalNow: (params) => api.get('/anime/seasonal/now', { params }),

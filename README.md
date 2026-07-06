@@ -174,12 +174,23 @@ Browser → /api/anime/* (Express) → Redis cache → Jikan API (MAL)
 
 ---
 
-## Themes
+## Rate-limit protection
 
-Three built-in themes (toggle via the ◐ button, bottom-right):
+Jikan allows 3 req/s and 60 req/min. The proxy in `animeService.js` keeps
+rate-limit errors away from users:
 
-| Name | Vibe |
-|------|------|
-| **Dusk** | Deep violet, default |
-| **Slate** | Cool blue-grey |
-| **Ember** | Warm coral |
+1. **Global queue** — all outgoing requests share one queue capped at
+   2 req/s / 55 req/min (safety margin under Jikan's limits)
+2. **Retries** — 429s and 5xx retry up to 3× with 1s/2s/4s backoff
+3. **Stale fallback** — every response is also cached for 7 days; if retries
+   fail, the stale copy is served instead of an error
+4. **Deduplication** — concurrent identical requests share one upstream call
+5. **Frontend** — 400ms search debounce, aborted stale searches, next-page
+   prefetch, and auto-retrying error states
+
+---
+
+## Theme
+
+One theme: **Dusk** (deep violet). The Grid/List card style toggle lives in
+the top bar.

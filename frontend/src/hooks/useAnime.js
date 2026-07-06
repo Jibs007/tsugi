@@ -76,31 +76,40 @@ function genColor(id) { return PALETTE[(id ?? 0) % PALETTE.length]; }
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
-export function useTopAnime(params = {}) {
-  return useQuery({
+const shapePage = (r) => ({
+  items:      (r.items || []).map(normaliseAnime),
+  pagination: r.pagination ?? null,
+});
+
+// Exported as option builders (not just hooks) so pages can
+// queryClient.prefetchQuery() the next page with identical keys/fns.
+// `signal` cancels the HTTP request when the query is superseded.
+export function topQueryOptions(params = {}) {
+  return {
     queryKey:  animeKeys.top(params),
-    queryFn:   () => animeApi.top(params).then((r) => ({
-      items:      (r.items || []).map(normaliseAnime),
-      pagination: r.pagination ?? null,
-    })),
+    queryFn:   ({ signal }) => animeApi.top(params, signal).then(shapePage),
     staleTime: 5 * 60 * 1000,
     retry: 1,
-  });
+  };
+}
+
+export function searchQueryOptions(params = {}) {
+  return {
+    queryKey:  animeKeys.search(params),
+    queryFn:   ({ signal }) => animeApi.search(params, signal).then(shapePage),
+    staleTime: 2 * 60 * 1000,
+    retry: 1,
+  };
+}
+
+export function useTopAnime(params = {}) {
+  return useQuery(topQueryOptions(params));
 }
 
 export function useAnimeSearch(params = {}) {
   const { page, limit, ...filterParams } = params; // eslint-disable-line no-unused-vars
   const hasFilters = Object.values(filterParams).some(Boolean);
-  return useQuery({
-    queryKey:  animeKeys.search(params),
-    queryFn:   () => animeApi.search(params).then((r) => ({
-      items:      (r.items || []).map(normaliseAnime),
-      pagination: r.pagination ?? null,
-    })),
-    enabled:   hasFilters,
-    staleTime: 2 * 60 * 1000,
-    retry: 1,
-  });
+  return useQuery({ ...searchQueryOptions(params), enabled: hasFilters });
 }
 
 export function useAnimeDetail(id) {

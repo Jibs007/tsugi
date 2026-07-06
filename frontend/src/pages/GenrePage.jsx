@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import AnimeCard from '../components/AnimeCard';
 import { useWatchlistStore } from '../stores/watchlistStore';
 import { useThemeStore } from '../stores/themeStore';
-import { useAnimeSearch, useGenres } from '../hooks/useAnime';
+import { useAnimeSearch, useGenres, searchQueryOptions } from '../hooks/useAnime';
+import { useAutoRetry } from '../hooks/useAutoRetry';
 
 // MAL sorts genre pages by member count by default — do the same.
 const SORTS = [
@@ -41,6 +43,20 @@ export default function GenrePage() {
   const items      = data?.items ?? [];
   const pagination = data?.pagination ?? null;
   const hasNext    = pagination?.has_next_page ?? (items.length === 24);
+
+  // Auto-retry: first attempt after 3s, then twice more at 5s intervals,
+  // before falling back to the manual Retry button.
+  const { retrying, retryNow } = useAutoRetry(isError, refetch, [3000, 5000, 5000]);
+
+  // Prefetch the next page 2s after a successful render so Next is instant
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (isLoading || isError || !hasNext || items.length === 0) return;
+    const timer = setTimeout(() => {
+      queryClient.prefetchQuery(searchQueryOptions({ genres: id, order_by: sort, sort: 'desc', limit: 24, page: page + 1 }));
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [data, isLoading, isError, hasNext, id, sort, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goPage = (n) => {
     setPage(n);
@@ -93,11 +109,18 @@ export default function GenrePage() {
       ) : isError || items.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 0' }}>
           <div style={{ fontSize: 15, color: t.textMuted, marginBottom: 14 }}>
-            {isError ? "Couldn't load this genre — usually a temporary MyAnimeList rate limit." : 'No anime found in this genre.'}
+            {isError
+              ? (retrying
+                  ? 'Having trouble reaching MyAnimeList — retrying automatically…'
+                  : "Couldn't load this genre after several attempts.")
+              : 'No anime found in this genre.'}
           </div>
-          {isError && (
+          {isError && retrying && (
+            <span className="skeleton" style={{ width: 10, height: 10, borderRadius: '50%', background: t.accent, display: 'inline-block' }} />
+          )}
+          {isError && !retrying && (
             <button
-              onClick={() => refetch()}
+              onClick={retryNow}
               style={{ background: t.accent, border: 'none', color: '#fff', borderRadius: 7, padding: '8px 18px', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}
             >Retry</button>
           )}
