@@ -27,3 +27,4 @@ pnpm-debug.log*
 # Docker volumes (local data)
 postgres_data/
 redis_data/
+dump.rdb
