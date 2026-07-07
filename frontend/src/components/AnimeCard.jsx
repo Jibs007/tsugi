@@ -1,7 +1,37 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AnimeCover from './AnimeCover';
 import StatusBadge from './StatusBadge';
 import { STATUS_COLORS, STATUS_LABELS } from '../lib/constants';
+
+function TypeBadge({ type, t }) {
+  if (!type) return null;
+  return (
+    <span style={{
+      fontSize: 9, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase',
+      color: t.textMuted, background: t.surface2, border: `1px solid ${t.border}`,
+      borderRadius: 4, padding: '1px 5px',
+    }}>{type}</span>
+  );
+}
+
+// Genre chip that links to the genre's browse page without triggering the card click
+function GenreChip({ genre, t, small }) {
+  const navigate = useNavigate();
+  const clickable = genre.id != null;
+  return (
+    <span
+      onClick={clickable ? (e) => { e.stopPropagation(); navigate(`/genre/${genre.id}`); } : undefined}
+      style={{
+        fontSize: small ? 10 : 11, fontWeight: small ? 700 : 600, color: t.accent2,
+        background: t.accentMuted, borderRadius: 4, padding: small ? '2px 6px' : '2px 7px',
+        cursor: clickable ? 'pointer' : 'default',
+      }}
+      onMouseEnter={clickable ? (e) => (e.currentTarget.style.textDecoration = 'underline') : undefined}
+      onMouseLeave={clickable ? (e) => (e.currentTarget.style.textDecoration = 'none') : undefined}
+    >{genre.name}</span>
+  );
+}
 
 export default function AnimeCard({ anime, onClick, watchEntry, t, cardStyle = 'grid' }) {
   const [hovered, setHovered] = useState(false);
@@ -24,10 +54,12 @@ export default function AnimeCard({ anime, onClick, watchEntry, t, cardStyle = '
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 16, color: t.text, marginBottom: 1 }}>{anime.title}</div>
           <div style={{ fontSize: 12, color: t.textMuted, marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{anime.jp}</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             {anime.genres.slice(0, 2).map((g) => (
-              <span key={g} style={{ fontSize: 11, fontWeight: 600, color: t.accent2, background: t.accentMuted, borderRadius: 4, padding: '2px 7px' }}>{g}</span>
+              <GenreChip key={g.name} genre={g} t={t} />
             ))}
+            <TypeBadge type={anime.type} t={t} />
+            <span style={{ fontSize: 11, color: t.textMuted }}>{anime.eps} eps</span>
           </div>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -100,11 +132,12 @@ export default function AnimeCard({ anime, onClick, watchEntry, t, cardStyle = '
           )}
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
             {anime.genres.slice(0, 4).map((g) => (
-              <span key={g} style={{ fontSize: 10, fontWeight: 700, color: t.accent2, background: t.accentMuted, borderRadius: 4, padding: '2px 6px' }}>{g}</span>
+              <GenreChip key={g.name} genre={g} t={t} small />
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 10, fontSize: 11, color: t.textMuted }}>
+          <div style={{ display: 'flex', gap: 8, fontSize: 11, color: t.textMuted, alignItems: 'center', flexWrap: 'wrap' }}>
             {anime.rating != null && <span>★ {anime.rating}</span>}
+            <TypeBadge type={anime.type} t={t} />
             <span>{anime.eps} eps</span>
             {anime.year && <span>{anime.year}</span>}
           </div>

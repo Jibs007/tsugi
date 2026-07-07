@@ -4,17 +4,16 @@ import { useQueryClient } from '@tanstack/react-query';
 import AnimeCard from '../components/AnimeCard';
 import { useWatchlistStore } from '../stores/watchlistStore';
 import { useThemeStore } from '../stores/themeStore';
-import { useAnimeSearch, useGenres, searchQueryOptions } from '../hooks/useAnime';
+import { useAnimeSearch, useStudio, searchQueryOptions } from '../hooks/useAnime';
 import { useAutoRetry } from '../hooks/useAutoRetry';
 
-// MAL sorts genre pages by member count by default — do the same.
 const SORTS = [
   { key: 'members',    label: 'Most Members' },
   { key: 'score',      label: 'Top Rated' },
   { key: 'start_date', label: 'Newest' },
 ];
 
-export default function GenrePage() {
+export default function StudioPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -32,39 +31,31 @@ export default function GenrePage() {
       if (v == null || v === '') params.delete(k);
       else params.set(k, String(v));
     }
-    navigate({ pathname: `/genre/${id}`, search: params.toString() ? `?${params}` : '' });
+    navigate({ pathname: `/studio/${id}`, search: params.toString() ? `?${params}` : '' });
   };
 
-  const { data: genres = [] } = useGenres();
-  const genre = genres.find((g) => String(g.id) === id);
+  const { data: studio } = useStudio(id);
 
   useEffect(() => {
-    document.title = genre ? `${genre.name} Anime · Tsugi` : 'Tsugi 次 · Anime Watchlist';
+    document.title = studio ? `${studio.name} · Tsugi` : 'Tsugi 次 · Anime Watchlist';
     return () => { document.title = 'Tsugi 次 · Anime Watchlist'; };
-  }, [genre?.name]);
+  }, [studio?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { data, isLoading, isError, refetch } = useAnimeSearch({
-    genres: id,
-    order_by: sort,
-    sort: 'desc',
-    limit: 24,
-    page,
-  });
+  const catalogueParams = { producers: id, order_by: sort, sort: 'desc', limit: 24, page };
+  const { data, isLoading, isError, refetch } = useAnimeSearch(catalogueParams);
 
   const items      = data?.items ?? [];
   const pagination = data?.pagination ?? null;
   const hasNext    = pagination?.has_next_page ?? (items.length === 24);
 
-  // Auto-retry: first attempt after 3s, then twice more at 5s intervals,
-  // before falling back to the manual Retry button.
   const { retrying, retryNow } = useAutoRetry(isError, refetch, [3000, 5000, 5000]);
 
-  // Prefetch the next page 2s after a successful render so Next is instant
+  // Prefetch the next catalogue page
   const queryClient = useQueryClient();
   useEffect(() => {
     if (isLoading || isError || !hasNext || items.length === 0) return;
     const timer = setTimeout(() => {
-      queryClient.prefetchQuery(searchQueryOptions({ genres: id, order_by: sort, sort: 'desc', limit: 24, page: page + 1 }));
+      queryClient.prefetchQuery(searchQueryOptions({ ...catalogueParams, page: page + 1 }));
     }, 2000);
     return () => clearTimeout(timer);
   }, [data, isLoading, isError, hasNext, id, sort, page]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -74,27 +65,45 @@ export default function GenrePage() {
     document.getElementById('main-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Detail pages read this to build their breadcrumb trail
-  const fromState = { from: { type: 'genre', id: Number(id), name: genre?.name } };
+  const established = studio?.established
+    ? new Date(studio.established).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+    : null;
+
+  const fromState = { from: { type: 'studio', id: Number(id), name: studio?.name } };
 
   return (
     <div style={{ padding: '32px 40px' }} className="animate-fade-in">
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 6 }}>
-        <button
-          onClick={() => navigate('/genres')}
-          style={{ background: 'transparent', border: 'none', color: t.textMuted, fontWeight: 600, fontSize: 13, cursor: 'pointer', padding: 0 }}
-        >← All genres</button>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
-        <div style={{ fontWeight: 800, fontSize: 28, color: t.text }}>{genre?.name ?? 'Genre'}</div>
-        {genre?.count > 0 && (
-          <div style={{ fontSize: 13, color: t.textMuted }}>{genre.count.toLocaleString()} titles on MyAnimeList</div>
+      <button
+        onClick={() => navigate('/genres')}
+        style={{ background: 'transparent', border: 'none', color: t.textMuted, fontWeight: 600, fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 18 }}
+      >← All studios</button>
+
+      {/* Studio header */}
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', marginBottom: 28 }}>
+        {studio?.image && (
+          <div style={{ width: 130, flexShrink: 0, background: '#fff', borderRadius: 10, padding: 10, border: `1px solid ${t.border}` }}>
+            <img src={studio.image} alt={studio.name} style={{ width: '100%', display: 'block' }} />
+          </div>
         )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 28, color: t.text, marginBottom: 6 }}>
+            {studio?.name ?? 'Studio'}
+          </div>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, color: t.textMuted, marginBottom: 12 }}>
+            {established && <span>Established {established}</span>}
+            {studio?.favorites > 0 && <span>♥ {studio.favorites.toLocaleString()} favorites</span>}
+            {studio?.count > 0 && <span>{studio.count.toLocaleString()} anime</span>}
+          </div>
+          {studio?.about && (
+            <p style={{ fontSize: 13, color: t.textMuted, lineHeight: 1.7, maxWidth: 720, whiteSpace: 'pre-line' }}>
+              {studio.about.length > 500 ? `${studio.about.slice(0, 500)}…` : studio.about}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Sort */}
-      <div style={{ display: 'flex', gap: 7, margin: '16px 0 24px' }}>
+      <div style={{ display: 'flex', gap: 7, marginBottom: 24 }}>
         {SORTS.map(({ key, label }) => (
           <button key={key} onClick={() => updateParams({ sort: key === 'members' ? null : key, page: null })} style={{
             background: sort === key ? t.accentMuted : 'transparent',
@@ -126,8 +135,8 @@ export default function GenrePage() {
             {isError
               ? (retrying
                   ? 'Having trouble reaching MyAnimeList — retrying automatically…'
-                  : "Couldn't load this genre after several attempts.")
-              : 'No anime found in this genre.'}
+                  : "Couldn't load this studio's catalogue after several attempts.")
+              : 'No anime found for this studio.'}
           </div>
           {isError && retrying && (
             <span className="skeleton" style={{ width: 10, height: 10, borderRadius: '50%', background: t.accent, display: 'inline-block' }} />

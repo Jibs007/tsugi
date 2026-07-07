@@ -135,7 +135,7 @@ function normalise(raw) {
     favorites:   raw.favorites ?? null,
     synopsis:    raw.synopsis,
     background:  raw.background || null,
-    studios:     (raw.studios   || []).map((s) => s.name),
+    studios:     (raw.studios   || []).map((s) => ({ id: s.mal_id, name: s.name })),
     producers:   (raw.producers || []).map((p) => p.name),
     licensors:   (raw.licensors || []).map((l) => l.name),
     genres:      (raw.genres   || []).map((g) => ({ id: g.mal_id, name: g.name })),
@@ -188,7 +188,7 @@ function sortByTitleMatch(items, query) {
 
 // Cache key namespace — bump when the normalised shape changes so stale
 // entries from an older schema are never served.
-const V = 'v3';
+const V = 'v4';
 
 /** Single anime — full detail */
 export async function getById(id) {
@@ -220,6 +220,7 @@ export async function search(opts = {}) {
     type:      opts.type     || undefined,
     status:    opts.status   || undefined,      // airing | complete | upcoming
     genres:    opts.genres   || undefined,      // comma-separated MAL genre ids
+    producers: opts.producers || undefined,     // comma-separated MAL producer/studio ids
     order_by:  orderBy,
     sort:      orderBy ? (opts.sort || 'desc') : undefined,
     min_score: opts.min_score || undefined,
@@ -283,16 +284,64 @@ export async function getSeason(year, season, opts = {}) {
   });
 }
 
-/** All genres from MAL */
+/**
+ * All genres from MAL, grouped like MAL's anime.php page.
+ * Jikan's /genres/anime items carry NO type field — the only way to know
+ * which group a genre belongs to is to query each filter separately.
+ */
+const GENRE_FILTERS = ['genres', 'explicit_genres', 'themes', 'demographics'];
+
 export async function getGenres() {
   return withCache(`anime:${V}:genres`, TTL.genres, async () => {
-    const data = await jikan('/genres/anime');
-    return (data.data || []).map((g) => ({
-      id:    g.mal_id,
-      name:  g.name,
-      count: g.count,
-      type:  g.type || 'Genres',
-    }));
+    const all = [];
+    for (const filter of GENRE_FILTERS) {
+      const data = await jikan('/genres/anime', { filter });
+      for (const g of data.data || []) {
+        all.push({ id: g.mal_id, name: g.name, count: g.count, type: filter });
+      }
+    }
+    return all;
+  });
+}
+
+// ─── Producers / studios ──────────────────────────────────────────────────────
+
+function normaliseProducer(raw) {
+  if (!raw) return null;
+  return {
+    id:          raw.mal_id,
+    name:        raw.titles?.find((t) => t.type === 'Default')?.title || raw.titles?.[0]?.title || 'Unknown',
+    image:       raw.images?.jpg?.image_url || null,
+    favorites:   raw.favorites ?? 0,
+    count:       raw.count ?? 0,
+    established: raw.established || null,
+    about:       raw.about || null,
+    malUrl:      raw.url || null,
+  };
+}
+
+/** Studios/producers ranked by favorites — 25 per page (Jikan page size) */
+export async function getProducers(opts = {}) {
+  const page = Math.max(1, parseInt(opts.page, 10) || 1);
+  return withCache(`anime:${V}:producers:${page}`, TTL.genres, async () => {
+    const data = await jikan('/producers', { page, order_by: 'favorites', sort: 'desc' });
+    return {
+      items:      (data.data || []).map(normaliseProducer),
+      pagination: data.pagination || null,
+    };
+  });
+}
+
+/** Single studio/producer — name, logo, established, about, favorites */
+export async function getProducerById(id) {
+  return withCache(`anime:${V}:producer:${id}`, TTL.genres, async () => {
+    try {
+      const data = await jikan(`/producers/${id}`);
+      return normaliseProducer(data.data);
+    } catch (err) {
+      if (err.status === 404) return null;
+      throw err;
+    }
   });
 }
 
@@ -326,6 +375,108 @@ export async function getCharacters(animeId) {
         };
       });
   });
+}
+
+// ─── Franchise walker ─────────────────────────────────────────────────────────
+// Walks Sequel/Prequel links recursively to assemble the whole franchise in
+// chronological order, collecting every related anime encountered along the
+// way (side stories, movies, spin-offs). Capped to keep pathological
+// franchises (Gundam…) from blowing the rate limit.
+
+const FRANCHISE_MAX_ENTRIES = 30;
+const FRANCHISE_MAX_DEPTH   = 10;
+
+function normaliseLite(raw) {
+  if (!raw) return null;
+  return {
+    id:        raw.mal_id,
+    title:     raw.title_english || raw.title,
+    image:     raw.images?.webp?.image_url || raw.images?.jpg?.image_url || null,
+    year:      raw.year || (raw.aired?.from ? new Date(raw.aired.from).getFullYear() : null),
+    airedFrom: raw.aired?.from || null,
+    type:      raw.type || null,
+    score:     raw.score ?? null,
+  };
+}
+
+async function getRelationsOf(id) {
+  return withCache(`anime:${V}:relations:${id}`, TTL.detail, async () => {
+    const data = await jikan(`/anime/${id}/relations`);
+    return data.data || [];
+  });
+}
+
+async function getLite(id) {
+  return withCache(`anime:${V}:lite:${id}`, TTL.detail, async () => {
+    const data = await jikan(`/anime/${id}`);
+    return normaliseLite(data.data);
+  });
+}
+
+export async function getFranchise(animeId) {
+  animeId = Number(animeId);
+
+  // Every member of a franchise shares one cached result: a per-member
+  // pointer key maps to the franchise blob keyed by the root (lowest) id.
+  try {
+    const rootId = await redis.get(`anime:${V}:franchise-root:${animeId}`);
+    if (rootId) {
+      const cached = await redis.get(`anime:${V}:franchise:${rootId}`);
+      if (cached) return JSON.parse(cached);
+    }
+  } catch {}
+
+  // BFS: recurse only along Sequel/Prequel edges, but collect anime entries
+  // from every relation group encountered.
+  const collected = new Set([animeId]);
+  const visited = new Set();
+  let frontier = [animeId];
+
+  for (let depth = 0; depth <= FRANCHISE_MAX_DEPTH && frontier.length && collected.size < FRANCHISE_MAX_ENTRIES; depth++) {
+    const next = [];
+    for (const id of frontier) {
+      if (visited.has(id)) continue;
+      visited.add(id);
+      let groups;
+      try { groups = await getRelationsOf(id); } catch { continue; }
+      for (const group of groups) {
+        for (const entry of group.entry || []) {
+          if (entry.type !== 'anime') continue; // skip manga/light novels
+          if (collected.size >= FRANCHISE_MAX_ENTRIES && !collected.has(entry.mal_id)) continue;
+          collected.add(entry.mal_id);
+          if ((group.relation === 'Sequel' || group.relation === 'Prequel') && !visited.has(entry.mal_id)) {
+            next.push(entry.mal_id);
+          }
+        }
+      }
+    }
+    frontier = next;
+  }
+
+  const results = await Promise.allSettled([...collected].map(getLite));
+  const members = results
+    .filter((r) => r.status === 'fulfilled' && r.value)
+    .map((r) => r.value);
+
+  // De-dupe by id, sort chronologically (unknown air dates last)
+  const unique = [...new Map(members.map((m) => [m.id, m])).values()];
+  unique.sort((a, b) => {
+    const da = a.airedFrom ? Date.parse(a.airedFrom) : Infinity;
+    const db = b.airedFrom ? Date.parse(b.airedFrom) : Infinity;
+    return (da - db) || (a.id - b.id);
+  });
+
+  const rootId = unique.length ? Math.min(...unique.map((m) => m.id)) : animeId;
+  try {
+    const multi = redis.multi();
+    multi.setex(`anime:${V}:franchise:${rootId}`, TTL.detail, JSON.stringify(unique));
+    for (const m of unique) {
+      multi.setex(`anime:${V}:franchise-root:${m.id}`, TTL.detail, String(rootId));
+    }
+    await multi.exec();
+  } catch {}
+
+  return unique;
 }
 
 /** Invalidate a cached entry — call when user reports stale data */

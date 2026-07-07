@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import AnimeCard from '../components/AnimeCard';
 import AnimeCover from '../components/AnimeCover';
@@ -7,69 +7,67 @@ import StatusBadge from '../components/StatusBadge';
 import { GENRES } from '../lib/constants';
 import { useWatchlistStore } from '../stores/watchlistStore';
 import { useThemeStore } from '../stores/themeStore';
-import { useTopAnime, useAnimeSearch, useGenres, topQueryOptions, searchQueryOptions } from '../hooks/useAnime';
+import { useTopAnime, useAnimeSearch, useSeasonNow, useGenres, topQueryOptions, searchQueryOptions, seasonNowQueryOptions } from '../hooks/useAnime';
 import { useAutoRetry } from '../hooks/useAutoRetry';
 
-// Jikan /top/anime sort modes — null filter = default ranking (top rated)
+// Sort tabs. "airing" uses /seasons/now (genuinely currently-airing anime);
+// the others map to /top/anime ("toprated" = no filter = default ranking).
 const SORT_TABS = [
   { key: 'bypopularity', label: 'Popular' },
-  { key: null,           label: 'Top Rated' },
+  { key: 'toprated',     label: 'Top Rated' },
   { key: 'airing',       label: 'Airing Now' },
   { key: 'upcoming',     label: 'Upcoming' },
 ];
 
 export default function DiscoverPage({ onAuthClick }) {
   const navigate = useNavigate();
-  const location = useLocation();
   const [searchParams] = useSearchParams();
   const { theme: t, cardStyle } = useThemeStore();
   const { getEntry } = useWatchlistStore();
   const gridRef = useRef(null);
 
-  // The URL is the source of truth for filters, so links from the genre
-  // browser (/?genres=22) and the search bar (/?q=...) both work.
+  // ALL Discover state lives in the URL (?q=&genres=&sort=&page=), so browser
+  // back/forward restores exactly where the user was — page 3 stays page 3.
   const urlQuery   = searchParams.get('q') || '';
   const urlGenreId = searchParams.get('genres');
+  const page       = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
+  const sortParam  = searchParams.get('sort');
+  const sort       = SORT_TABS.some((s) => s.key === sortParam) ? sortParam : 'bypopularity';
 
-  const [page, setPage]           = useState(1);
   const [activeIdx, setActiveIdx] = useState(0);
   const [carouselPaused, setPaused] = useState(false);
-  const [topFilter, setTopFilter] = useState('bypopularity');
+  const [tabHidden, setTabHidden] = useState(document.hidden);
 
   // Full genre list from MAL — used to label genres picked in the browser
   // that aren't in our quick-chip row.
   const { data: allGenres = [] } = useGenres();
 
-  // React to every navigation event (location.key is unique per navigate() call).
-  // This catches logo→same-URL clicks and resets pagination whenever the
-  // search context changes.
-  useEffect(() => {
-    setPage(1);
-    setActiveIdx(0);
-  }, [location.key]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const setGenreParam = (id) => {
+  // Merge a patch into the URL params; null/'' deletes a key. Defaults are
+  // omitted to keep URLs clean (/?page=1&sort=bypopularity → /).
+  const updateParams = (patch) => {
     const params = new URLSearchParams(searchParams);
-    if (id == null) params.delete('genres');
-    else params.set('genres', String(id));
+    for (const [k, v] of Object.entries(patch)) {
+      if (v == null || v === '') params.delete(k);
+      else params.set(k, String(v));
+    }
     navigate({ pathname: '/', search: params.toString() ? `?${params}` : '' });
   };
 
-  const changeSort = (key) => { setTopFilter(key); setPage(1); setActiveIdx(0); };
+  const setGenreParam = (id) => updateParams({ genres: id, page: null });
+  const changeSort    = (key) => updateParams({ sort: key === 'bypopularity' ? null : key, page: null });
 
   const isFiltering = !!(urlQuery || urlGenreId);
+  const mode = isFiltering ? 'search' : (sort === 'airing' ? 'season' : 'top');
 
-  const { data: topData, isLoading: topLoading, isError: topError, refetch: refetchTop } = useTopAnime({
-    ...(topFilter ? { filter: topFilter } : {}),
-    limit: 24,
-    page,
-  });
+  const topParams    = { ...(sort === 'bypopularity' ? { filter: 'bypopularity' } : sort === 'upcoming' ? { filter: 'upcoming' } : {}), limit: 24, page };
+  const searchQParams = { q: urlQuery || undefined, genres: urlGenreId || undefined, limit: 24, page };
+  const seasonParams = { limit: 24, page };
 
-  const { data: searchData, isLoading: searchLoading, isError: searchError, refetch: refetchSearch } = useAnimeSearch(
-    isFiltering
-      ? { q: urlQuery || undefined, genres: urlGenreId || undefined, limit: 24, page }
-      : {},
-  );
+  const topQ    = useTopAnime(topParams, mode === 'top');
+  const seasonQ = useSeasonNow(seasonParams, mode === 'season');
+  const searchQ = useAnimeSearch(mode === 'search' ? searchQParams : {});
+
+  const active = mode === 'search' ? searchQ : mode === 'season' ? seasonQ : topQ;
 
   // A genre chosen in the genre browser that isn't in the quick-chip row
   const knownChip     = GENRES.some((g) => g.id != null && String(g.id) === urlGenreId);
@@ -77,37 +75,35 @@ export default function DiscoverPage({ onAuthClick }) {
     ? { name: allGenres.find((g) => String(g.id) === urlGenreId)?.name ?? 'Genre', id: Number(urlGenreId) }
     : null;
 
-  const activeData = isFiltering ? searchData   : topData;
-  const loading    = isFiltering ? searchLoading : topLoading;
-  const loadError  = isFiltering ? searchError   : topError;
-  const retry      = isFiltering ? refetchSearch : refetchTop;
-  const anime      = activeData?.items      ?? [];
-  const pagination = activeData?.pagination ?? null;
+  const loading    = active.isLoading;
+  const loadError  = active.isError;
+  const anime      = active.data?.items      ?? [];
+  const pagination = active.data?.pagination ?? null;
   const hasNext    = pagination?.has_next_page ?? (anime.length === 24);
 
   // On failure, retry automatically (5s apart, 3 times) before requiring a click
-  const { retrying, retryNow } = useAutoRetry(loadError, retry);
+  const { retrying, retryNow } = useAutoRetry(loadError, active.refetch);
 
   // Prefetch the next page 2s after the current one renders — spread out over
   // time via the backend queue, so clicking Next is instant.
   const queryClient = useQueryClient();
   useEffect(() => {
     if (loading || loadError || !hasNext || anime.length === 0) return;
-    const nextParams = isFiltering
-      ? { q: urlQuery || undefined, genres: urlGenreId || undefined, limit: 24, page: page + 1 }
-      : { ...(topFilter ? { filter: topFilter } : {}), limit: 24, page: page + 1 };
-    const id = setTimeout(() => {
-      queryClient.prefetchQuery(isFiltering ? searchQueryOptions(nextParams) : topQueryOptions(nextParams));
-    }, 2000);
+    const nextOptions = mode === 'search'
+      ? searchQueryOptions({ ...searchQParams, page: page + 1 })
+      : mode === 'season'
+        ? seasonNowQueryOptions({ ...seasonParams, page: page + 1 })
+        : topQueryOptions({ ...topParams, page: page + 1 });
+    const id = setTimeout(() => queryClient.prefetchQuery(nextOptions), 2000);
     return () => clearTimeout(id);
-  }, [activeData, loading, loadError, hasNext, isFiltering, urlQuery, urlGenreId, topFilter, page]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active.data, loading, loadError, hasNext, mode, urlQuery, urlGenreId, sort, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Carousel data — a fresh random 5 of the top list per visit, so the
+  // Carousel data — a fresh random 5 of the browse list per visit, so the
   // spotlight isn't the same anime every time you open the app.
   const [shuffleSeed] = useState(() => Math.random());
   const featuredList = useMemo(() => {
     if (isFiltering) return [];
-    const items = [...(topData?.items ?? [])];
+    const items = [...(active.data?.items ?? [])];
     // Seeded Fisher–Yates so the order is stable within a visit
     let s = Math.floor(shuffleSeed * 2 ** 31);
     const rand = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
@@ -116,30 +112,43 @@ export default function DiscoverPage({ onAuthClick }) {
       [items[i], items[j]] = [items[j], items[i]];
     }
     return items.slice(0, 5);
-  }, [topData, isFiltering, shuffleSeed]);
+  }, [active.data, isFiltering, shuffleSeed]);
   const featured = featuredList[activeIdx] ?? featuredList[0];
 
-  // Auto-advance carousel every 5s
+  // Reset the carousel when the sort tab changes the featured pool
+  useEffect(() => { setActiveIdx(0); }, [sort]);
+
+  // Pause the auto-advance while the tab is hidden
   useEffect(() => {
-    if (carouselPaused || featuredList.length <= 1) return;
+    const onVis = () => setTabHidden(document.hidden);
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
+  // Auto-advance carousel every 5s — paused on hover and while the tab is hidden
+  useEffect(() => {
+    if (carouselPaused || tabHidden || featuredList.length <= 1) return;
     const id = setInterval(
       () => setActiveIdx((i) => (i + 1) % featuredList.length),
       5000,
     );
     return () => clearInterval(id);
-  }, [carouselPaused, featuredList.length]);
+  }, [carouselPaused, tabHidden, featuredList.length]);
 
-  // Scroll to top on page change
+  // Page changes go through the URL so browser back restores them
   const goPage = (n) => {
-    setPage(n);
+    updateParams({ page: n === 1 ? null : n });
     document.getElementById('main-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  // Detail pages read this to build their breadcrumb trail
+  const fromState = { from: { type: 'discover' } };
 
   return (
     <div className="animate-fade-in">
       {/* Carousel spotlight — only when not filtering */}
       {!isFiltering && (
-        topLoading ? <SpotlightSkeleton t={t} /> : featured && (
+        loading ? <SpotlightSkeleton t={t} /> : featured && (
           <div
             style={{
               position: 'relative', overflow: 'hidden',
@@ -162,7 +171,11 @@ export default function DiscoverPage({ onAuthClick }) {
                 <div style={{ fontSize: 13, color: t.textMuted, marginBottom: 12 }}>{featured.jp}</div>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
                   {featured.genres.slice(0, 3).map((g) => (
-                    <span key={g} style={{ fontSize: 12, fontWeight: 700, color: t.accent2, background: t.accentMuted, borderRadius: 5, padding: '3px 9px' }}>{g}</span>
+                    <span
+                      key={g.name}
+                      onClick={g.id != null ? () => navigate(`/genre/${g.id}`) : undefined}
+                      style={{ fontSize: 12, fontWeight: 700, color: t.accent2, background: t.accentMuted, borderRadius: 5, padding: '3px 9px', cursor: g.id != null ? 'pointer' : 'default' }}
+                    >{g.name}</span>
                   ))}
                   <StatusBadge status={featured.status} />
                   {featured.rating != null && (
@@ -170,7 +183,7 @@ export default function DiscoverPage({ onAuthClick }) {
                   )}
                 </div>
                 <button
-                  onClick={() => navigate(`/anime/${featured.id}`)}
+                  onClick={() => navigate(`/anime/${featured.id}`, { state: fromState })}
                   style={{ background: t.accent, border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: 14, padding: '10px 22px', cursor: 'pointer', transition: 'opacity .15s' }}
                   onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
                   onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
@@ -202,7 +215,7 @@ export default function DiscoverPage({ onAuthClick }) {
       {!isFiltering && (
         <div style={{ padding: '14px 40px 0', display: 'flex', gap: 7, alignItems: 'center' }}>
           {SORT_TABS.map(({ key, label }) => {
-            const active = topFilter === key;
+            const active = sort === key;
             return (
               <button key={label} onClick={() => changeSort(key)} style={{
                 flexShrink: 0, background: active ? t.accentMuted : 'transparent',
@@ -302,7 +315,7 @@ export default function DiscoverPage({ onAuthClick }) {
               gap: cardStyle === 'list' ? 8 : 16,
             }}>
               {anime.map((a) => (
-                <AnimeCard key={a.id} anime={a} watchEntry={getEntry(a.id)} onClick={() => navigate(`/anime/${a.id}`)} t={t} cardStyle={cardStyle} />
+                <AnimeCard key={a.id} anime={a} watchEntry={getEntry(a.id)} onClick={() => navigate(`/anime/${a.id}`, { state: fromState })} t={t} cardStyle={cardStyle} />
               ))}
             </div>
 
