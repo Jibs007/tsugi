@@ -54,12 +54,14 @@ export default function WatchlistPage() {
 
       {filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 0' }}>
-          <div style={{ fontSize: 15, color: t.textMuted, marginBottom: 16 }}>Nothing here yet.</div>
+          <div style={{ fontSize: 15, color: t.textMuted, marginBottom: 16 }}>
+            Nothing here yet — head to Discover to find something to watch.
+          </div>
           <button
             onClick={() => navigate('/')}
             style={{ background: t.accent, border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: 14, padding: '10px 20px', cursor: 'pointer' }}
           >
-            Browse Discover
+            Discover
           </button>
         </div>
       ) : (
@@ -127,7 +129,9 @@ function WatchlistItem({ entry, t, navigate, onStatusChange, onRemove }) {
       <AnimeCover anime={anime} width={48} height={68} style={{ borderRadius: 4 }} />
       <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate(`/anime/${anime.id}`)}>
         <div style={{ fontWeight: 700, fontSize: 15, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{anime.title}</div>
-        <div style={{ fontSize: 12, color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{anime.jp} · {anime.eps} eps</div>
+        <div style={{ fontSize: 12, color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {anime.jp} · {anime.type ? `${anime.type} · ` : ''}{anime.eps} eps
+        </div>
       </div>
 
       {/* Episode progress */}

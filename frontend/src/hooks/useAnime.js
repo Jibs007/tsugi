@@ -20,7 +20,8 @@ export function normaliseAnime(a) {
     title:   a.title   ?? a.title_english ?? 'Unknown',
     jp:      a.titleJp ?? a.title_japanese ?? a.title ?? '',
     color:   genColor(a.id ?? a.mal_id),
-    genres:  (a.genres ?? []).map((g) => (typeof g === 'string' ? g : g.name)),
+    // {id, name} objects — ids make genre tags clickable links
+    genres:  (a.genres ?? []).map((g) => (typeof g === 'string' ? { id: null, name: g } : g)),
     status:  mapStatus(a.status ?? a.airing),
     rating:  a.score ?? null,          // null = not yet rated (don't show "★ 0")
     scoredBy: a.scoredBy ?? null,
@@ -32,8 +33,9 @@ export function normaliseAnime(a) {
     year:    a.year ?? null,           // null = unknown, never fabricate a year
     season:  a.season ?? null,
     type:    a.type    ?? null,
-    studio:  (a.studios ?? [])[0] ?? '',
-    studios: a.studios ?? [],
+    studio:  (a.studios ?? [])[0]?.name ?? (typeof (a.studios ?? [])[0] === 'string' ? a.studios[0] : ''),
+    studioId: (a.studios ?? [])[0]?.id ?? null,
+    studios: (a.studios ?? []).map((s) => (typeof s === 'string' ? { id: null, name: s } : s)),
     producers: a.producers ?? [],
     licensors: a.licensors ?? [],
     desc:    a.synopsis ?? '',
@@ -76,8 +78,21 @@ function genColor(id) { return PALETTE[(id ?? 0) % PALETTE.length]; }
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
+/**
+ * De-dupe an anime array by mal_id — Jikan occasionally repeats entries
+ * across rank/page boundaries.
+ *
+ * Note on "identical" side-by-side cards that survive this: React keys are
+ * mal_id everywhere (never array index) and no placeholder cards mount next
+ * to real ones, so two look-alike cards are genuinely DIFFERENT MAL entries
+ * (e.g. split-cour seasons sharing one English title). Those are correct to
+ * show; only true mal_id repeats are removed here.
+ */
+export const dedupeById = (items) =>
+  Array.from(new Map(items.map((a) => [a.id ?? a.mal_id, a])).values());
+
 const shapePage = (r) => ({
-  items:      (r.items || []).map(normaliseAnime),
+  items:      dedupeById((r.items || []).map(normaliseAnime)),
   pagination: r.pagination ?? null,
 });
 
@@ -102,14 +117,59 @@ export function searchQueryOptions(params = {}) {
   };
 }
 
-export function useTopAnime(params = {}) {
-  return useQuery(topQueryOptions(params));
+export function seasonNowQueryOptions(params = {}) {
+  return {
+    queryKey:  ['anime', 'seasonNow', params],
+    queryFn:   ({ signal }) => animeApi.seasonalNow(params, signal).then(shapePage),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  };
 }
 
-export function useAnimeSearch(params = {}) {
+export function useTopAnime(params = {}, enabled = true) {
+  return useQuery({ ...topQueryOptions(params), enabled });
+}
+
+export function useSeasonNow(params = {}, enabled = true) {
+  return useQuery({ ...seasonNowQueryOptions(params), enabled });
+}
+
+export function useAnimeSearch(params = {}, enabled = true) {
   const { page, limit, ...filterParams } = params; // eslint-disable-line no-unused-vars
   const hasFilters = Object.values(filterParams).some(Boolean);
-  return useQuery({ ...searchQueryOptions(params), enabled: hasFilters });
+  return useQuery({ ...searchQueryOptions(params), enabled: enabled && hasFilters });
+}
+
+// ─── Studios ──────────────────────────────────────────────────────────────────
+
+export function studiosQueryOptions(page) {
+  return {
+    queryKey:  ['studios', 'list', page],
+    queryFn:   ({ signal }) => animeApi.studios({ page }, signal),
+    staleTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  };
+}
+
+export function useStudio(id) {
+  return useQuery({
+    queryKey:  ['studios', 'detail', id],
+    queryFn:   () => animeApi.studio(id),
+    enabled:   !!id,
+    staleTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
+}
+
+/** Whole franchise for a detail page — may arrive after main content */
+export function useFranchise(animeId) {
+  return useQuery({
+    queryKey:  ['anime', 'franchise', animeId],
+    queryFn:   () => animeApi.franchise(animeId).then((items) => dedupeById(items)),
+    enabled:   !!animeId,
+    staleTime: 30 * 60 * 1000,
+    retry: 1,
+  });
 }
 
 export function useAnimeDetail(id) {
@@ -147,7 +207,8 @@ export function useAnimeCharacters(animeId) {
 export function useRecommendations(animeId) {
   return useQuery({
     queryKey: animeKeys.recs(animeId),
-    queryFn:  () => animeApi.recommendations(animeId).then((items) => items.map((i) => ({ ...normaliseAnime(i), votes: i.votes ?? null }))),
+    queryFn:  () => animeApi.recommendations(animeId).then((items) =>
+      dedupeById(items.map((i) => ({ ...normaliseAnime(i), votes: i.votes ?? null })))),
     enabled:  !!animeId,
     staleTime: 10 * 60 * 1000,
     retry: 1,

@@ -17,6 +17,15 @@ function sortSuggestions(items, query) {
 
 const TYPE_LABEL = { TV: 'TV', Movie: 'Movie', OVA: 'OVA', ONA: 'ONA', Special: 'Special', Music: 'Music' };
 
+// Last 5 searches, persisted across sessions
+const RECENT_KEY = 'tsugi_recent_searches';
+const readRecent = () => {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY));
+    return Array.isArray(list) ? list.slice(0, 5) : [];
+  } catch { return []; }
+};
+
 export default function Topbar() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -26,6 +35,14 @@ export default function Topbar() {
   const [suggestions, setSuggestions] = useState([]);
   const [fetching, setFetching]     = useState(false);
   const [open, setOpen]             = useState(false);
+  const [recent, setRecent]         = useState(readRecent);
+
+  const saveRecent = (list) => {
+    setRecent(list);
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch {}
+  };
+  const addRecent    = (q) => saveRecent([q, ...recent.filter((r) => r !== q)].slice(0, 5));
+  const removeRecent = (q) => saveRecent(recent.filter((r) => r !== q));
 
   const containerRef = useRef(null);
 
@@ -40,7 +57,11 @@ export default function Topbar() {
   // in-flight request so stale responses never race the fresh one.
   useEffect(() => {
     const q = value.trim();
-    if (q.length < 2) { setSuggestions([]); setOpen(false); return; }
+    if (q.length < 2) {
+      setSuggestions([]);
+      if (q.length !== 0) setOpen(false); // empty input keeps the recent-searches dropdown
+      return;
+    }
 
     const controller = new AbortController();
     const id = setTimeout(async () => {
@@ -72,10 +93,11 @@ export default function Topbar() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const submit = () => {
-    const q = value.trim();
+  const submit = (query = value) => {
+    const q = String(query).trim();
     setOpen(false);
     setSuggestions([]);
+    if (q) addRecent(q);
     navigate(q ? `/?q=${encodeURIComponent(q)}` : '/', { replace: false });
   };
 
@@ -106,7 +128,7 @@ export default function Topbar() {
             if (e.key === 'Enter')  submit();
             if (e.key === 'Escape') { setOpen(false); setSuggestions([]); }
           }}
-          onFocus={() => { if (suggestions.length > 0) setOpen(true); }}
+          onFocus={() => { if (suggestions.length > 0 || (!value.trim() && recent.length > 0)) setOpen(true); }}
           placeholder="Search anime..."
           style={{
             width: '100%', background: t.surface, border: `1px solid ${t.border}`,
@@ -124,6 +146,37 @@ export default function Topbar() {
             onClick={() => { setValue(''); setSuggestions([]); setOpen(false); navigate('/'); }}
             style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
           >×</button>
+        )}
+
+        {/* Recent searches — shown when the bar is focused and empty */}
+        {open && !value.trim() && suggestions.length === 0 && recent.length > 0 && (
+          <div style={{
+            position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+            background: t.bg2, border: `1px solid ${t.border}`,
+            borderRadius: '0 0 10px 10px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            overflow: 'hidden', padding: '6px 0',
+          }}>
+            <div style={{ padding: '6px 14px 4px', fontSize: 10, fontWeight: 700, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+              Recent searches
+            </div>
+            {recent.map((q) => (
+              <div
+                key={q}
+                onMouseDown={(e) => { e.preventDefault(); setValue(q); submit(q); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, color: t.text }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = t.surface)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
+                <span style={{ color: t.textMuted, fontSize: 12 }}>↻</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q}</span>
+                <button
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); removeRecent(q); }}
+                  title="Remove"
+                  style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: '0 2px' }}
+                >×</button>
+              </div>
+            ))}
+          </div>
         )}
 
         {/* Suggestions dropdown */}

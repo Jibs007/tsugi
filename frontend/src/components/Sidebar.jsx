@@ -1,12 +1,12 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 
+// Profile is reached via the user card at the bottom of the sidebar
 const NAV = [
   { path: '/',          label: 'Discover', icon: '◈' },
   { path: '/watchlist', label: 'My List',  icon: '▶', auth: true },
   { path: '/lists',     label: 'Lists',    icon: '⊞' },
   { path: '/genres',    label: 'Genres',   icon: '◎' },
-  { path: '/profile',   label: 'Profile',  icon: '◉', auth: true },
 ];
 
 export default function Sidebar({ user, onAuthClick, t }) {

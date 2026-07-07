@@ -1,24 +1,23 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { THEME } from '../lib/constants';
 
-// Dusk is the only theme (hardcoded). Only the Grid/List card style is a
-// user preference, and it's the only thing persisted.
-export const useThemeStore = create(
-  persist(
-    (set) => ({
-      theme: THEME,
-      cardStyle: 'grid',
-      setCardStyle: (style) => set({ cardStyle: style }),
-    }),
-    {
-      name: 'tsugi-theme',
-      partialize: (s) => ({ cardStyle: s.cardStyle }),
-      merge: (persisted, current) => ({
-        ...current,
-        cardStyle: persisted?.cardStyle === 'list' ? 'list' : 'grid',
-        theme: THEME,
-      }),
-    },
-  ),
-);
+// Dusk is the only theme (hardcoded). The Grid/List card style is the one
+// UI preference, persisted in localStorage under tsugi_card_style.
+const CARD_STYLE_KEY = 'tsugi_card_style';
+
+function readCardStyle() {
+  try {
+    return localStorage.getItem(CARD_STYLE_KEY) === 'list' ? 'list' : 'grid';
+  } catch {
+    return 'grid';
+  }
+}
+
+export const useThemeStore = create((set) => ({
+  theme: THEME,
+  cardStyle: readCardStyle(),
+  setCardStyle: (style) => {
+    try { localStorage.setItem(CARD_STYLE_KEY, style); } catch {}
+    set({ cardStyle: style });
+  },
+}));

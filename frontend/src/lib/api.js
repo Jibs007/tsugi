@@ -92,7 +92,16 @@ export const animeApi = {
   top: (params, signal) => api.get('/anime/top', { params, signal }),
 
   /** GET /api/anime/seasonal/now */
-  seasonalNow: (params) => api.get('/anime/seasonal/now', { params }),
+  seasonalNow: (params, signal) => api.get('/anime/seasonal/now', { params, signal }),
+
+  /** GET /api/anime/studios?page=N — studios ranked by favorites */
+  studios: (params, signal) => api.get('/anime/studios', { params, signal }),
+
+  /** GET /api/anime/studios/:id — studio header data */
+  studio: (id) => api.get(`/anime/studios/${id}`),
+
+  /** GET /api/anime/:id/franchise — whole series, chronological */
+  franchise: (id) => api.get(`/anime/${id}/franchise`),
 
   /** GET /api/anime/seasonal/:year/:season */
   season: (year, season, params) => api.get(`/anime/seasonal/${year}/${season}`, { params }),

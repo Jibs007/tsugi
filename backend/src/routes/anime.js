@@ -30,6 +30,33 @@ router.get('/genres', async (_req, res, next) => {
 });
 
 /**
+ * GET /api/anime/studios
+ * ?page=1 — studios/producers ranked by favorites, 25 per page
+ */
+router.get('/studios', async (req, res, next) => {
+  try {
+    res.json(await anime.getProducers(req.query));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/anime/studios/:id — single studio header data
+ */
+router.get('/studios/:id', async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id must be an integer' });
+    const studio = await anime.getProducerById(id);
+    if (!studio) return res.status(404).json({ error: 'Studio not found' });
+    res.json(studio);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/anime/seasonal/now
  * ?page=1&limit=24
  */
@@ -70,8 +97,8 @@ router.get('/seasonal/:year/:season', async (req, res, next) => {
  */
 router.get('/search', async (req, res, next) => {
   try {
-    if (!req.query.q && !req.query.genres && !req.query.status && !req.query.type) {
-      return res.status(400).json({ error: 'Provide at least one of: q, genres, status, type' });
+    if (!req.query.q && !req.query.genres && !req.query.status && !req.query.type && !req.query.producers) {
+      return res.status(400).json({ error: 'Provide at least one of: q, genres, status, type, producers' });
     }
     res.json(await anime.search(req.query));
   } catch (err) {
@@ -87,6 +114,19 @@ router.get('/:id/characters', async (req, res, next) => {
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'id must be an integer' });
     res.json(await anime.getCharacters(id));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/anime/:id/franchise — the whole series, chronological
+ */
+router.get('/:id/franchise', async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id must be an integer' });
+    res.json(await anime.getFranchise(id));
   } catch (err) {
     next(err);
   }

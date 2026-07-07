@@ -81,9 +81,11 @@ export default function BrowseListsPage({ user, onAuthClick }) {
         </div>
       ) : allLists.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 0', color: t.textMuted }}>
-          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>No public lists yet.</div>
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>
+            No lists yet — build one around a theme, a mood, or a marathon.
+          </div>
           <button onClick={() => user ? navigate('/lists/create') : onAuthClick()} style={{ padding: '10px 20px', background: t.accent, border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
-            Be the first to create one
+            Create List
           </button>
         </div>
       ) : (

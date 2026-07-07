@@ -1,15 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import AnimeCover from '../components/AnimeCover';
 import StatusBadge from '../components/StatusBadge';
 import { STATUS_LABELS, STATUS_COLORS } from '../lib/constants';
 import { useWatchlistStore } from '../stores/watchlistStore';
 import { useThemeStore } from '../stores/themeStore';
-import { useAnimeDetail, useAnimeCharacters, useRecommendations } from '../hooks/useAnime';
+import { useAnimeDetail, useAnimeCharacters, useRecommendations, useFranchise } from '../hooks/useAnime';
 import { useAutoRetry } from '../hooks/useAutoRetry';
-
-// Relation type display order (MAL convention)
-const RELATION_ORDER = ['Sequel', 'Prequel', 'Alternative Version', 'Alternative Setting', 'Side Story', 'Spin-off', 'Full Story', 'Parent Story', 'Summary', 'Adaptation', 'Character', 'Other'];
 
 function getYouTubeId(embedUrl) {
   if (!embedUrl) return null;
@@ -23,15 +20,22 @@ const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 export default function AnimeDetailPage({ user, onAuthClick }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { theme: t } = useThemeStore();
   const { entries, upsertEntry, removeEntry, myLists, addAnimeToList } = useWatchlistStore();
   const [showListPicker, setShowListPicker] = useState(false);
   const [toast, setToast] = useState(null);
+  const [themesOpen, setThemesOpen] = useState(false);
 
   const { data: anime, isLoading, isError, refetch } = useAnimeDetail(id);
   const { data: chars = [] }  = useAnimeCharacters(id);
   const { data: recs  = [] }  = useRecommendations(id);
+  const { data: franchise = [], isLoading: franchiseLoading } = useFranchise(id);
   const entry = entries.find((e) => e.animeId === Number(id));
+
+  // Preserve the breadcrumb origin when hopping between anime on this page
+  const fromState = location.state?.from ? { from: location.state.from } : undefined;
+  const goAnime = (animeId) => navigate(`/anime/${animeId}`, { state: fromState });
 
   useEffect(() => {
     document.title = anime?.title ? `${anime.title} · Tsugi` : 'Tsugi 次 · Anime Watchlist';
@@ -91,16 +95,6 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
 
   const ytId = getYouTubeId(anime.trailer);
 
-  // Related entries — only anime, sorted by relation type order
-  const relations = (anime.relations || [])
-    .map((r) => ({ relation: r.relation, entries: (r.entry || []).filter((e) => e.type === 'anime') }))
-    .filter((r) => r.entries.length > 0)
-    .sort((a, b) => {
-      const ai = RELATION_ORDER.indexOf(a.relation);
-      const bi = RELATION_ORDER.indexOf(b.relation);
-      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-    });
-
   // Streaming + external links (plus the canonical MAL page)
   const streamLinks = [
     ...(anime.malUrl ? [{ name: 'MyAnimeList', url: anime.malUrl }] : []),
@@ -110,7 +104,8 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
 
   const premiered = anime.season ? `${cap(anime.season)} ${anime.year ?? ''}`.trim() : (anime.year || null);
 
-  // MAL-style information panel rows — empty values are skipped
+  // MAL-style information panel rows — empty values are skipped.
+  // Studios render separately as links to their /studio pages.
   const infoRows = [
     ['Type',       anime.type],
     ['Episodes',   anime.eps],
@@ -118,7 +113,6 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
     ['Aired',      anime.aired],
     ['Premiered',  premiered],
     ['Broadcast',  anime.broadcast],
-    ['Studios',    anime.studios.join(', ')],
     ['Producers',  anime.producers.slice(0, 4).join(', ')],
     ['Licensors',  anime.licensors.slice(0, 3).join(', ')],
     ['Source',     anime.source],
@@ -135,19 +129,38 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
   ];
 
   const genreChips = [
-    ...anime.genres.map((g) => ({ label: g, kind: 'genre' })),
-    ...anime.themes.map((g) => ({ label: g, kind: 'theme' })),
-    ...anime.demographics.map((g) => ({ label: g, kind: 'demo' })),
+    ...anime.genres.map((g) => ({ label: g.name, id: g.id, kind: 'genre' })),
+    ...anime.themes.map((g) => ({ label: g, id: null, kind: 'theme' })),
+    ...anime.demographics.map((g) => ({ label: g, id: null, kind: 'demo' })),
   ];
+
+  // Breadcrumb trail derived from where the user navigated from
+  const from = location.state?.from;
+  const crumbs = from?.type === 'genre'
+    ? [{ label: 'Genres', to: '/genres' }, { label: from.name || 'Genre', to: `/genre/${from.id}` }]
+    : from?.type === 'studio'
+      ? [{ label: 'Studios', to: '/genres' }, { label: from.name || 'Studio', to: `/studio/${from.id}` }]
+      : [{ label: 'Discover', to: '/' }];
 
   return (
     <div style={{ padding: '32px 40px', maxWidth: 1100 }} className="animate-fade-in">
-      <button
-        onClick={() => navigate(-1)}
-        style={{ background: 'transparent', border: 'none', color: t.textMuted, fontWeight: 600, fontSize: 13, cursor: 'pointer', marginBottom: 20, padding: 0 }}
-      >
-        ← Back
-      </button>
+      {/* Breadcrumbs */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, fontSize: 13, flexWrap: 'wrap' }}>
+        {crumbs.map((c) => (
+          <span key={c.to} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Link
+              to={c.to}
+              style={{ color: t.textMuted, textDecoration: 'none', fontWeight: 600 }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = t.accent)}
+              onMouseLeave={(e) => (e.currentTarget.style.color = t.textMuted)}
+            >{c.label}</Link>
+            <span style={{ color: t.textDim }}>›</span>
+          </span>
+        ))}
+        <span style={{ color: t.text, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>
+          {anime.title}
+        </span>
+      </div>
 
       {/* Title block */}
       <div style={{ marginBottom: 20 }}>
@@ -192,6 +205,26 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
                 <span style={{ color: t.text }}>{val}</span>
               </div>
             ))}
+            {anime.studios.length > 0 && (
+              <div style={{ marginBottom: 8, fontSize: 12, lineHeight: 1.45 }}>
+                <span style={{ fontWeight: 700, color: t.textMuted }}>Studios: </span>
+                {anime.studios.map((s, i) => (
+                  <span key={s.name}>
+                    {i > 0 && ', '}
+                    {s.id != null ? (
+                      <Link
+                        to={`/studio/${s.id}`}
+                        style={{ color: t.accent2, textDecoration: 'none', fontWeight: 600 }}
+                        onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                        onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+                      >{s.name}</Link>
+                    ) : (
+                      <span style={{ color: t.text }}>{s.name}</span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Links */}
@@ -218,15 +251,22 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
 
         {/* ── Right column ── */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Genre / theme / demographic chips */}
+          {/* Genre / theme / demographic chips — genres link to their browse page */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
             {genreChips.map((g) => (
-              <span key={`${g.kind}-${g.label}`} style={{
-                fontSize: 12, fontWeight: 700, borderRadius: 5, padding: '3px 10px',
-                color:      g.kind === 'genre' ? t.accent2 : t.textMuted,
-                background: g.kind === 'genre' ? t.accentMuted : t.surface,
-                border:     g.kind === 'genre' ? 'none' : `1px solid ${t.border}`,
-              }}>{g.label}</span>
+              <span
+                key={`${g.kind}-${g.label}`}
+                onClick={g.id != null ? () => navigate(`/genre/${g.id}`) : undefined}
+                style={{
+                  fontSize: 12, fontWeight: 700, borderRadius: 5, padding: '3px 10px',
+                  color:      g.kind === 'genre' ? t.accent2 : t.textMuted,
+                  background: g.kind === 'genre' ? t.accentMuted : t.surface,
+                  border:     g.kind === 'genre' ? 'none' : `1px solid ${t.border}`,
+                  cursor:     g.id != null ? 'pointer' : 'default',
+                }}
+                onMouseEnter={g.id != null ? (e) => (e.currentTarget.style.textDecoration = 'underline') : undefined}
+                onMouseLeave={g.id != null ? (e) => (e.currentTarget.style.textDecoration = 'none') : undefined}
+              >{g.label}</span>
             ))}
             <StatusBadge status={anime.status} />
           </div>
@@ -330,38 +370,100 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
             </Section>
           )}
 
-          {/* Opening / Ending themes */}
+          {/* Opening / Ending themes — collapsible */}
           {(anime.openings.length > 0 || anime.endings.length > 0) && (
-            <Section title="Theme Songs" t={t}>
-              <div style={{ display: 'grid', gridTemplateColumns: anime.openings.length && anime.endings.length ? '1fr 1fr' : '1fr', gap: 20 }}>
-                {[['Openings', anime.openings], ['Endings', anime.endings]].filter(([, list]) => list.length > 0).map(([label, list]) => (
-                  <div key={label}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>{label}</div>
-                    {list.map((song, i) => (
-                      <div key={i} style={{ fontSize: 13, color: t.textMuted, lineHeight: 1.5, marginBottom: 6, display: 'flex', gap: 8 }}>
-                        <span style={{ color: t.accent2 }}>♪</span>
-                        <span>{song}</span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
+            <div style={{ marginBottom: 36 }}>
+              <div
+                onClick={() => setThemesOpen((o) => !o)}
+                style={{
+                  fontWeight: 800, fontSize: 17, color: t.text, marginBottom: themesOpen ? 14 : 0,
+                  paddingBottom: 10, borderBottom: `1px solid ${t.border}`,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}
+              >
+                <span>
+                  Theme Songs{' '}
+                  <span style={{ fontSize: 12, color: t.textMuted, fontWeight: 600 }}>
+                    ({anime.openings.length} OP · {anime.endings.length} ED)
+                  </span>
+                </span>
+                <span style={{ fontSize: 13, color: t.textMuted }}>{themesOpen ? '▾' : '▸'}</span>
               </div>
-            </Section>
+              {themesOpen && (
+                <div style={{ display: 'grid', gridTemplateColumns: anime.openings.length && anime.endings.length ? '1fr 1fr' : '1fr', gap: 20 }}>
+                  {[['Openings', anime.openings], ['Endings', anime.endings]].filter(([, list]) => list.length > 0).map(([label, list]) => (
+                    <div key={label}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>{label}</div>
+                      {list.map((song, i) => (
+                        <div key={i} style={{ fontSize: 13, color: t.textMuted, lineHeight: 1.5, marginBottom: 6, display: 'flex', gap: 8 }}>
+                          <span style={{ color: t.accent2 }}>♪</span>
+                          <span>{song}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
-          {/* Related entries */}
-          {relations.length > 0 && (
-            <Section title="Related" t={t}>
-              {relations.map((group) => (
-                <div key={group.relation} style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>{group.relation}</div>
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    {group.entries.map((rel) => (
-                      <RelationCard key={rel.mal_id} entry={rel} t={t} navigate={navigate} />
-                    ))}
-                  </div>
+          {/* Full Series — the whole franchise, chronological */}
+          {(franchiseLoading || franchise.length > 1) && (
+            <Section title="Full Series" t={t}>
+              {franchiseLoading ? (
+                <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 6 }}>
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="skeleton" style={{ width: 130, height: 220, flexShrink: 0, borderRadius: 8, background: t.surface }} />
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 6 }}>
+                  {franchise.map((m) => {
+                    const current = m.id === Number(id);
+                    return (
+                      <div
+                        key={m.id}
+                        onClick={current ? undefined : () => goAnime(m.id)}
+                        style={{
+                          width: 130, flexShrink: 0, borderRadius: 8, overflow: 'hidden',
+                          background: t.surface,
+                          border: current ? `2px solid ${t.accent}` : `1px solid ${t.border}`,
+                          cursor: current ? 'default' : 'pointer',
+                          boxShadow: current ? `0 0 0 3px ${t.accentMuted}` : 'none',
+                          transition: 'border-color .13s',
+                        }}
+                        onMouseEnter={current ? undefined : (e) => (e.currentTarget.style.borderColor = t.accent + '88')}
+                        onMouseLeave={current ? undefined : (e) => (e.currentTarget.style.borderColor = t.border)}
+                      >
+                        <div style={{ height: 150, background: t.surface2, position: 'relative' }}>
+                          {m.image && <img src={m.image} alt={m.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                          {m.type && (
+                            <span style={{
+                              position: 'absolute', top: 6, left: 6, fontSize: 9, fontWeight: 800,
+                              letterSpacing: 0.5, textTransform: 'uppercase', color: '#fff',
+                              background: 'rgba(0,0,0,0.7)', borderRadius: 4, padding: '2px 6px',
+                            }}>{m.type}</span>
+                          )}
+                          {current && (
+                            <span style={{
+                              position: 'absolute', bottom: 6, left: 6, fontSize: 9, fontWeight: 800,
+                              letterSpacing: 0.5, textTransform: 'uppercase', color: '#fff',
+                              background: t.accent, borderRadius: 4, padding: '2px 6px',
+                            }}>Viewing</span>
+                          )}
+                        </div>
+                        <div style={{ padding: '8px 10px' }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title}</div>
+                          <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2, display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{m.year ?? '—'}</span>
+                            {m.score != null && <span>★ {m.score}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </Section>
           )}
 
@@ -397,7 +499,7 @@ export default function AnimeDetailPage({ user, onAuthClick }) {
                 {recs.slice(0, 8).map((rec) => (
                   <div
                     key={rec.id}
-                    onClick={() => navigate(`/anime/${rec.id}`)}
+                    onClick={() => goAnime(rec.id)}
                     style={{ cursor: 'pointer', borderRadius: 8, overflow: 'hidden', background: t.surface, border: `1px solid ${t.border}`, transition: 'border-color .13s' }}
                     onMouseEnter={(e) => (e.currentTarget.style.borderColor = t.accent + '66')}
                     onMouseLeave={(e) => (e.currentTarget.style.borderColor = t.border)}
@@ -440,28 +542,6 @@ function Section({ title, t, children }) {
         {title}
       </div>
       {children}
-    </div>
-  );
-}
-
-// Deliberately does NOT fetch full details per relation — long-running
-// franchises have dozens of related entries, and one fetch each would blow
-// straight through Jikan's rate limit. The name from the relations payload
-// is enough; the detail page is one click away.
-function RelationCard({ entry, t, navigate }) {
-  return (
-    <div
-      onClick={() => navigate(`/anime/${entry.mal_id}`)}
-      style={{ display: 'flex', alignItems: 'center', gap: 10, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', maxWidth: 280, padding: '10px 14px', transition: 'border-color .13s' }}
-      onMouseEnter={(e) => (e.currentTarget.style.borderColor = t.accent + '66')}
-      onMouseLeave={(e) => (e.currentTarget.style.borderColor = t.border)}
-    >
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {entry.name}
-        </div>
-        <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>{entry.type?.toUpperCase?.() || 'ANIME'}</div>
-      </div>
     </div>
   );
 }
